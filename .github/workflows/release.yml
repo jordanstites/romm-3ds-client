@@ -26,8 +26,13 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends clang-format librsvg2-bin
 
+      # Build with the tag as the version so the About screen matches the
+      # release rather than the Makefile's hardcoded value.
       - name: Build
-        run: make EXTRA_CFLAGS=-Werror
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Building version $VERSION"
+          make EXTRA_CFLAGS=-Werror APP_VERSION="$VERSION"
 
       - name: Check formatting
         run: make format-check

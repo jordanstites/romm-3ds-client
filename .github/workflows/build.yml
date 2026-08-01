@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Needed to publish the rolling prerelease below.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,3 +44,32 @@ jobs:
           name: romm-3ds-client
           path: build/output/*.3dsx
           if-no-files-found: error
+
+      # A rolling prerelease so a build can be downloaded without a GitHub
+      # login, which the artifact above requires, and without waiting for a
+      # tagged release. Deliberately a PRERELEASE and deliberately not marked
+      # latest: parts of this write to save archives and have not been tested,
+      # so it should not look like something to depend on. Tagging v* produces
+      # a real release -- see release.yml.
+      - name: Publish rolling development build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Development build
+          prerelease: true
+          make_latest: "false"
+          # Replaced on every push, so it always reflects main rather than
+          # accumulating stale assets.
+          body: |
+            Automatic build of the latest commit on `main`
+            (${{ github.sha }}).
+
+            Untested in places, including the 3DS save restore path, which
+            writes to a title's save archive. Prefer a tagged release if one
+            exists.
+
+            Copy the `.3dsx` to `sdmc:/3ds/` and launch it from the Homebrew
+            Launcher.
+          files: build/output/*.3dsx
+          fail_on_unmatched_files: true
