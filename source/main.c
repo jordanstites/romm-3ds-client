@@ -22,6 +22,7 @@
 #include "savearchive.h"
 #include "install.h"
 #include "romformat.h"
+#include "transfer.h"
 #include "http.h"
 #include "cJSON/cJSON.h"
 #include "log.h"
@@ -57,7 +58,8 @@ typedef enum {
     STATE_ABOUT,
     STATE_PAIRING,
     STATE_SYNC,
-    STATE_INSTALLED
+    STATE_INSTALLED,
+    STATE_TRANSFER
 } AppState;
 
 static AppState currentState = STATE_LOADING;
@@ -1059,15 +1061,6 @@ static void download_native_save(void) {
     }
 }
 
-// Streams a CIA from the server straight into the AM installer.
-//
-// Nothing is written to the SD card: AM_StartCiaInstall returns a filesystem
-// handle, so the download can be piped directly into it. That also means the
-// FAT32 4GB per-file limit does not apply, since no file is ever created.
-static bool install_sink(const void *data, size_t length, void *userdata) {
-    return install_write((CiaInstall *)userdata, data, length);
-}
-
 static void install_focused_rom(void) {
     if (!romDetail) return;
 
@@ -1086,51 +1079,14 @@ static void install_focused_rom(void) {
         }
     }
 
-    char url[1024];
-    if (!api_build_content_url(romDetail->id, romDetail->fsName, url, sizeof(url))) return;
-
-    // Read the ticket first so the title can be sent to the right media. A
-    // DSiWare or system title installed to the SD card would not work.
-    FS_MediaType media = MEDIATYPE_SD;
-    HttpResponse header;
-    if (http_get_range(url, 0, INSTALL_HEADER_PROBE_BYTES, &header) && header.statusCode >= 200 &&
-        header.statusCode < 300) {
-        u64 titleId = install_title_id_from_header(header.data, header.size);
-        if (titleId != 0) {
-            media = install_destination_for(titleId);
-            log_info("Installing %016llX", (unsigned long long)titleId);
-        } else {
-            log_info("Could not read the title ID; installing to SD");
-        }
-    }
-    http_response_free(&header);
-
-    CiaInstall install;
-    if (!install_begin(&install, media)) return;
-
-    bottom_set_mode(BOTTOM_MODE_DOWNLOADING);
-    set_download_name(currentPlatformSlug, romDetail->name);
-    downloadQueueText = NULL;
-    progressLabel = "Installing...";
-
-    bool ok = http_download_to_sink(url, install_sink, &install, progress_callback);
-
-    if (ok) {
-        ok = install_finish(&install);
-    } else {
-        // Leaving a partial import open makes the next attempt fail.
-        install_cancel(&install);
+    if (!transfer_start_install(romDetail->id, romDetail->fsName, romDetail->name)) {
+        return;
     }
 
-    if (ok) {
-        log_info("Installed '%s'", romDetail->name);
-        titles_scan();
-        roms_refresh_status();
-    } else {
-        log_error("Install of '%s' failed", romDetail->name);
-    }
-
-    sync_bottom_after_action(STATE_ROM_DETAIL);
+    sound_play_click();
+    nav_push(STATE_ROM_DETAIL);
+    bottom_set_mode(BOTTOM_MODE_DEFAULT);
+    currentState = STATE_TRANSFER;
 }
 
 static void handle_state_rom_detail(u32 kDown) {
@@ -1408,6 +1364,56 @@ static void handle_state_about(u32 kDown) {
 // Rendering
 // ---------------------------------------------------------------------------
 
+static void draw_transfer_screen(void) {
+    TransferStatus status;
+    transfer_poll(&status);
+
+    ui_draw_header(status.kind == TRANSFER_KIND_INSTALL ? "Installing" : "Downloading");
+
+    float progress = status.total > 0 ? (float)status.transferred / status.total : -1.0f;
+
+    char sizeText[64];
+    if (status.total > 0) {
+        snprintf(sizeText, sizeof(sizeText), "%.1f / %.1f MB", status.transferred / (1024.0f * 1024.0f),
+                 status.total / (1024.0f * 1024.0f));
+    } else {
+        snprintf(sizeText, sizeof(sizeText), "%.1f MB", status.transferred / (1024.0f * 1024.0f));
+    }
+
+    ui_draw_progress(progress, status.detail, sizeText, status.label, NULL);
+
+    ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
+                 status.state == TRANSFER_RUNNING ? "B: Cancel" : "A: Continue", UI_COLOR_TEXT_DIM);
+}
+
+static void handle_state_transfer(u32 kDown) {
+    TransferStatus status;
+    transfer_poll(&status);
+
+    if (status.state == TRANSFER_RUNNING) {
+        if (kDown & KEY_B) transfer_cancel();
+        return;
+    }
+
+    // Finished, one way or another. Wait for acknowledgement so the outcome is
+    // readable rather than flashing past.
+    if (kDown & (KEY_A | KEY_B)) {
+        bool succeeded = status.state == TRANSFER_SUCCEEDED;
+        TransferKind kind = status.kind;
+        transfer_acknowledge();
+
+        if (succeeded && kind == TRANSFER_KIND_INSTALL) {
+            // A newly installed title changes what is on the console.
+            titles_scan();
+        }
+        roms_refresh_status();
+
+        sound_play_pop();
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        currentState = nav_pop();
+    }
+}
+
 static void draw_top_screen(void) {
     switch (currentState) {
     case STATE_LOADING:
@@ -1452,6 +1458,9 @@ static void draw_top_screen(void) {
     case STATE_INSTALLED:
         installed_draw();
         break;
+    case STATE_TRANSFER:
+        draw_transfer_screen();
+        break;
     }
 }
 
@@ -1482,6 +1491,8 @@ int main(int argc, char *argv[]) {
 
     // Brings up the socket service and curl. httpc/sslc are no longer used --
     // see http.h for why.
+    transfer_init();
+
     if (!api_init()) {
         log_error("Network unavailable. Check the console's internet connection.");
     }
@@ -1567,6 +1578,9 @@ int main(int argc, char *argv[]) {
         case STATE_INSTALLED:
             handle_state_installed(kDown);
             break;
+        case STATE_TRANSFER:
+            handle_state_transfer(kDown);
+            break;
         }
 
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
@@ -1584,6 +1598,7 @@ int main(int argc, char *argv[]) {
     bottom_exit();
     sound_exit();
     ui_exit();
+    transfer_exit();
     api_exit();
     titles_exit();
 
