@@ -18,6 +18,10 @@
 typedef struct {
     char serverUrl[CONFIG_MAX_URL_LEN];
     char romFolder[CONFIG_MAX_PATH_LEN];
+    // When false (the default) the platform list is filtered to systems the
+    // 3DS can actually run. A RomM library often spans consoles this hardware
+    // has no way to play.
+    bool showAllPlatforms;
 } Config;
 
 // Initialize config with defaults

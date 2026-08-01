@@ -77,6 +77,8 @@ bool config_load(Config *config) {
                 snprintf(config->serverUrl, CONFIG_MAX_URL_LEN, "%s", value);
             } else if (strcmp(key, "romFolder") == 0) {
                 snprintf(config->romFolder, CONFIG_MAX_PATH_LEN, "%s", value);
+            } else if (strcmp(key, "showAllPlatforms") == 0) {
+                config->showAllPlatforms = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
             }
         }
     }
@@ -98,6 +100,7 @@ static bool save_config_file(const Config *config) {
     // Write main config. Credentials are deliberately absent -- see auth.h.
     fprintf(f, "serverUrl=%s\n", config->serverUrl);
     fprintf(f, "romFolder=%s\n", config->romFolder);
+    fprintf(f, "showAllPlatforms=%s\n", config->showAllPlatforms ? "true" : "false");
 
     // Write platform mappings section
     if (mappingCount > 0) {

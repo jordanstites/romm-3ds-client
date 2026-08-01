@@ -19,7 +19,8 @@ typedef enum {
     BOTTOM_MODE_QUEUE_CONFIRM,
     BOTTOM_MODE_SEARCH_FORM,
     BOTTOM_MODE_FOLDER_BROWSER,
-    BOTTOM_MODE_ABOUT
+    BOTTOM_MODE_ABOUT,
+    BOTTOM_MODE_PAIRING
 } BottomMode;
 
 // Bottom screen action results

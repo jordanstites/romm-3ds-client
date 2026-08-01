@@ -91,6 +91,10 @@ void ui_draw_icon_search(float x, float y, float size, u32 color);
 void ui_draw_icon_home(float x, float y, float size, u32 color);
 void ui_draw_icon_info(float x, float y, float size, u32 color);
 
+// Render `text` as a QR code inside a size x size box. Returns false if the
+// text will not fit the encoder's version cap.
+bool ui_draw_qr(float x, float y, float size, const char *text);
+
 // Draw word-wrapped text within maxWidth. Returns number of lines drawn.
 // skipLines: skip this many lines before drawing (for scrolling)
 // maxLines: maximum lines to draw

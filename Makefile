@@ -41,7 +41,7 @@ APP_PRODUCT   := CTR-P-RM3D
 #---------------------------------------------------------------------------------
 TARGET        := $(notdir $(CURDIR))
 BUILD         := build
-SOURCES       := source source/screens source/cJSON
+SOURCES       := source source/screens source/cJSON source/qrcodegen
 INCLUDES      := source
 DATA          :=
 GRAPHICS      :=
@@ -160,7 +160,8 @@ clean:
 #---------------------------------------------------------------------------------
 # Source formatting
 #---------------------------------------------------------------------------------
-FORMAT_FILES := $(shell find source -name '*.c' -o -name '*.h' | grep -v cJSON)
+# cJSON and qrcodegen are vendored upstream; leave their formatting alone.
+FORMAT_FILES := $(shell find source -name '*.c' -o -name '*.h' | grep -vE 'cJSON|qrcodegen')
 
 format:
 	@clang-format -i $(FORMAT_FILES)

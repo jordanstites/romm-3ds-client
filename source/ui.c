@@ -3,6 +3,7 @@
  */
 
 #include "ui.h"
+#include "qrcodegen/qrcodegen.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -461,4 +462,55 @@ int ui_draw_wrapped_text(float x, float y, float maxWidth, const char *text, u32
     }
 
     return drawnLines;
+}
+
+// ---------------------------------------------------------------------------
+// QR codes
+// ---------------------------------------------------------------------------
+
+// Version 10 holds far more than any server URL we generate, and keeps the
+// working buffers small enough to be static.
+#define QR_MAX_VERSION 10
+#define QR_BUFFER_LEN qrcodegen_BUFFER_LEN_FOR_VERSION(QR_MAX_VERSION)
+
+bool ui_draw_qr(float x, float y, float size, const char *text) {
+    // Static rather than stack: ~400 bytes each, and the pairing screen calls
+    // this every frame.
+    static uint8_t qrcode[QR_BUFFER_LEN];
+    static uint8_t scratch[QR_BUFFER_LEN];
+
+    if (!text || text[0] == '\0') return false;
+
+    if (!qrcodegen_encodeText(text, scratch, qrcode, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, QR_MAX_VERSION,
+                              qrcodegen_Mask_AUTO, true)) {
+        return false;
+    }
+
+    int modules = qrcodegen_getSize(qrcode);
+    if (modules <= 0) return false;
+
+    // Snap modules to whole pixels. A fractional size leaves some rows a pixel
+    // wider than others, which phone scanners cope with badly.
+    float moduleSize = (float)(int)(size / modules);
+    if (moduleSize < 1.0f) moduleSize = 1.0f;
+
+    float drawn = moduleSize * modules;
+    float ox = x + (size - drawn) / 2;
+    float oy = y + (size - drawn) / 2;
+
+    // The quiet zone is part of the spec, not decoration -- without it scanners
+    // frequently fail to locate the symbol against a dark background.
+    float quiet = moduleSize * 4;
+    C2D_DrawRectSolid(ox - quiet, oy - quiet, 0, drawn + quiet * 2, drawn + quiet * 2,
+                      C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF));
+
+    for (int row = 0; row < modules; row++) {
+        for (int col = 0; col < modules; col++) {
+            if (qrcodegen_getModule(qrcode, col, row)) {
+                C2D_DrawRectSolid(ox + col * moduleSize, oy + row * moduleSize, 0, moduleSize, moduleSize,
+                                  C2D_Color32(0x00, 0x00, 0x00, 0xFF));
+            }
+        }
+    }
+    return true;
 }

@@ -150,14 +150,12 @@ void pairing_draw(void) {
         break;
 
     case STAGE_WAITING: {
-        // Two numbered steps: go here, type this. Both strings are meant to be
-        // read off the screen and retyped, so they are kept short and the code
-        // gets the largest type on the screen.
-        ui_draw_text(UI_PADDING, 46, "1.  On your phone or computer, open:", UI_COLOR_TEXT_DIM);
-        draw_centered_scaled(66, pairing.verifyUrl, UI_COLOR_TEXT, 0.7f);
+        draw_centered(46, "Scan the code on the bottom screen,", UI_COLOR_TEXT_DIM);
+        draw_centered(64, "or open this address and enter the code:", UI_COLOR_TEXT_DIM);
 
-        ui_draw_text(UI_PADDING, 100, "2.  Enter this code:", UI_COLOR_TEXT_DIM);
-        draw_centered_scaled(120, pairing.userCode, UI_COLOR_TEXT, 1.6f);
+        draw_centered_scaled(88, pairing.verifyUrlDisplay, UI_COLOR_TEXT, 0.5f);
+
+        draw_centered_scaled(116, pairing.userCode, UI_COLOR_TEXT, 1.6f);
 
         char countdown[64];
         int remaining = seconds_remaining();
@@ -186,4 +184,19 @@ void pairing_draw(void) {
     }
 
     ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING, "B: Back", UI_COLOR_TEXT_DIM);
+}
+
+bool pairing_draw_qr(void) {
+    if (stage != STAGE_WAITING || pairing.verifyUrl[0] == '\0') {
+        return false;
+    }
+
+    // The bottom screen is otherwise unused during pairing, so give the code as
+    // much of it as fits. A phone camera needs each module to be a few pixels
+    // across to lock on, which caps how much URL we can encode legibly.
+    float size = 170.0f;
+    float x = (SCREEN_BOTTOM_WIDTH - size) / 2;
+    float y = (SCREEN_BOTTOM_HEIGHT - size) / 2 + 12;
+
+    return ui_draw_qr(x, y, size, pairing.verifyUrl);
 }

@@ -14,6 +14,7 @@
 #include "config.h"
 #include "api.h"
 #include "auth.h"
+#include "compat.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -144,6 +145,24 @@ static void fetch_platforms(void) {
     platforms = api_get_platforms(&platformCount);
     if (platforms) {
         log_info("Found %d platforms", platformCount);
+
+        if (!config.showAllPlatforms) {
+            // Compact in place; api_free_platforms() frees the whole block, so
+            // dropping entries here does not leak.
+            int kept = 0;
+            for (int i = 0; i < platformCount; i++) {
+                if (compat_platform_is_playable(platforms[i].slug)) {
+                    platforms[kept++] = platforms[i];
+                } else {
+                    log_debug("Hiding platform '%s' (not playable on 3DS)", platforms[i].slug);
+                }
+            }
+            if (kept < platformCount) {
+                log_info("Showing %d of %d platforms; enable Show All in Settings for the rest", kept, platformCount);
+            }
+            platformCount = kept;
+        }
+
         platforms_set_data(platforms, platformCount);
         return;
     }
@@ -158,6 +177,7 @@ static void fetch_platforms(void) {
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
         nav_clear();
         pairing_init(&config, &authToken);
+        bottom_set_mode(BOTTOM_MODE_PAIRING);
         currentState = STATE_PAIRING;
         return;
     }

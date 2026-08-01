@@ -209,26 +209,30 @@ bool auth_begin_pairing(const char *serverUrl, AuthPairing *pairing) {
     copy_string_field(root, "user_code", pairing->userCode, AUTH_MAX_USER_CODE_LEN);
     copy_string_field(root, "device_code", pairing->deviceCode, AUTH_MAX_DEVICE_CODE_LEN);
 
-    // Prefer the short path. RomM also returns verification_path_complete with
-    // the code in a query string, but that is long and full of punctuation --
-    // miserable to copy off a 3DS screen onto a phone. The user types the code
-    // into the page instead.
+    // Must be the _complete form. RomM's /pair/device page requires the code in
+    // the query string -- without it the page renders "No pairing code
+    // provided." (The bare path returns HTTP 200, but that is only the SPA
+    // shell, so status alone does not tell you the page works.)
+    //
+    // The resulting URL is long, which is what the QR code on the bottom screen
+    // is for. verifyUrl keeps the scheme so it stays scannable.
     char relative[AUTH_MAX_VERIFY_URL_LEN];
-    copy_string_field(root, "verification_path", relative, sizeof(relative));
+    copy_string_field(root, "verification_path_complete", relative, sizeof(relative));
     if (relative[0] == '\0') {
-        copy_string_field(root, "verification_path_complete", relative, sizeof(relative));
+        copy_string_field(root, "verification_path", relative, sizeof(relative));
     }
-
     if (relative[0] != '\0') {
-        // Drop the scheme for display; browsers infer it, and it buys ~8
-        // characters of screen width for the part that matters.
-        const char *host = serverUrl;
-        if (strncmp(host, "https://", 8) == 0) {
-            host += 8;
-        } else if (strncmp(host, "http://", 7) == 0) {
-            host += 7;
+        snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "%s%s", serverUrl, relative);
+
+        // Scheme-stripped copy for the human-readable line: browsers infer it,
+        // and it buys ~8 characters of screen width.
+        const char *shortForm = pairing->verifyUrl;
+        if (strncmp(shortForm, "https://", 8) == 0) {
+            shortForm += 8;
+        } else if (strncmp(shortForm, "http://", 7) == 0) {
+            shortForm += 7;
         }
-        snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "%s%s", host, relative);
+        snprintf(pairing->verifyUrlDisplay, AUTH_MAX_VERIFY_URL_LEN, "%s", shortForm);
     }
 
     const cJSON *expiresIn = cJSON_GetObjectItemCaseSensitive(root, "expires_in");

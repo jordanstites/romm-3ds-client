@@ -57,9 +57,11 @@ bool auth_has_token(const AuthToken *token);
 typedef struct {
     char userCode[AUTH_MAX_USER_CODE_LEN];     // shown to the user
     char deviceCode[AUTH_MAX_DEVICE_CODE_LEN]; // secret, sent when polling
-    // Short address the user types by hand, scheme stripped, no query string --
-    // this is what gets read off the 3DS screen, so it has to stay short.
+    // Full approval URL including the code. RomM's pair page rejects a request
+    // without it, so this is what the QR code encodes.
     char verifyUrl[AUTH_MAX_VERIFY_URL_LEN];
+    // Same URL with the scheme stripped, for the on-screen text.
+    char verifyUrlDisplay[AUTH_MAX_VERIFY_URL_LEN];
     int expiresInSeconds;
     int pollIntervalSeconds;
 } AuthPairing;

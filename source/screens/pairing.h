@@ -23,4 +23,8 @@ PairingResult pairing_update(u32 kDown);
 
 void pairing_draw(void);
 
+// Draws the QR code on the bottom screen. Returns false when there is nothing
+// to show (no active pairing attempt), so the caller can fall back.
+bool pairing_draw_qr(void);
+
 #endif // PAIRING_H

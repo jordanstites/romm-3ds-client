@@ -10,7 +10,7 @@
 
 // Credentials are not settings. Pairing happens on its own screen and the
 // resulting token is stored by the auth module, never in config.ini.
-typedef enum { FIELD_SERVER_URL, FIELD_ROM_FOLDER, FIELD_COUNT } SettingsField;
+typedef enum { FIELD_SERVER_URL, FIELD_ROM_FOLDER, FIELD_SHOW_ALL_PLATFORMS, FIELD_COUNT } SettingsField;
 
 static Config *currentConfig = NULL;
 static int selectedField = FIELD_SERVER_URL;
@@ -76,6 +76,9 @@ SettingsResult settings_update(u32 kDown) {
             browser_init(currentConfig->romFolder[0] ? currentConfig->romFolder : "sdmc:/");
             browsingFolders = true;
             break;
+        case FIELD_SHOW_ALL_PLATFORMS:
+            currentConfig->showAllPlatforms = !currentConfig->showAllPlatforms;
+            break;
         default:
             break;
         }
@@ -121,6 +124,14 @@ void settings_draw(void) {
             ui_draw_list_item(UI_PADDING, y, fieldWidth,
                               currentConfig->romFolder[0] ? currentConfig->romFolder : "(not set)",
                               selectedField == FIELD_ROM_FOLDER);
+            break;
+
+        case FIELD_SHOW_ALL_PLATFORMS:
+            ui_draw_text(UI_PADDING, y, "Platforms shown:", UI_COLOR_TEXT_DIM);
+            y += UI_LINE_HEIGHT;
+            ui_draw_list_item(UI_PADDING, y, fieldWidth,
+                              currentConfig->showAllPlatforms ? "All in library" : "Only 3DS-playable",
+                              selectedField == FIELD_SHOW_ALL_PLATFORMS);
             break;
         }
 

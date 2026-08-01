@@ -3,6 +3,7 @@
  */
 
 #include "bottom.h"
+#include "pairing.h"
 #include "search.h"
 #include "../debuglog.h"
 #include "../ui.h"
@@ -374,6 +375,13 @@ void bottom_draw(void) {
     } else if (currentMode == BOTTOM_MODE_ABOUT) {
         ui_draw_rect(0, 0, SCREEN_BOTTOM_WIDTH, SCREEN_BOTTOM_HEIGHT, UI_COLOR_BG);
         draw_toolbar();
+    } else if (currentMode == BOTTOM_MODE_PAIRING) {
+        ui_draw_rect(0, 0, SCREEN_BOTTOM_WIDTH, SCREEN_BOTTOM_HEIGHT, UI_COLOR_BG);
+        if (!pairing_draw_qr()) {
+            const char *msg = "Scan on the top screen";
+            ui_draw_text((SCREEN_BOTTOM_WIDTH - ui_get_text_width(msg)) / 2, SCREEN_BOTTOM_HEIGHT / 2, msg,
+                         UI_COLOR_TEXT_DIM);
+        }
     } else {
         draw_toolbar();
     }
