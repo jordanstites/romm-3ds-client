@@ -107,10 +107,12 @@ build does not, since it uses devkitPro's own `smdhtool`.
 - **minizip needs ~64KB of stack** in `zipOpen3`, far more than the main thread
   has, so zip work runs on a dedicated 192KB thread.
 
-There is a known issue to fix before exposing this to the public internet: curl
-strips `CURLOPT_USERPWD` on cross-host redirects but not custom headers, so the
-bearer token would follow a redirect off-host. Harmless against a self-hosted
-RomM serving its own files. See the comment in `source/http.c`.
+- **Redirects are followed by hand.** curl strips `CURLOPT_USERPWD` on a
+  cross-host redirect but not custom headers, so with `CURLOPT_FOLLOWLOCATION`
+  the bearer token would be sent to whatever host a redirect names — and RomM
+  does redirect, to S3 or through a proxy. Each hop is re-issued explicitly and
+  the token is attached only when the target origin matches the configured
+  server, compared including scheme and port.
 
 ## Attribution
 

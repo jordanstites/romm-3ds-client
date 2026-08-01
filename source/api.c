@@ -53,6 +53,10 @@ void api_set_base_url(const char *url) {
     if (len > 0 && baseUrl[len - 1] == '/') {
         baseUrl[len - 1] = '\0';
     }
+
+    // Bounds where credentials may be sent, so a redirect off this origin
+    // cannot carry the token with it.
+    http_set_trusted_origin(baseUrl);
 }
 
 const char *api_get_base_url(void) {

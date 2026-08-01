@@ -46,7 +46,12 @@ void http_exit(void);
 // surface that to the user rather than silently disabling verification.
 bool http_has_ca_bundle(void);
 
-// Sent as `Authorization: Bearer ...` on every subsequent request.
+// The one origin credentials may be sent to. Requests to anywhere else -- most
+// importantly a redirect target -- are issued without the token.
+void http_set_trusted_origin(const char *url);
+
+// Sent as `Authorization: Bearer ...`, but only on requests to the trusted
+// origin.
 void http_set_bearer_token(const char *token);
 void http_clear_auth(void);
 
