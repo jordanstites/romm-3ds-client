@@ -34,6 +34,11 @@ PlatformsResult platforms_update(u32 kDown, int *outSelectedIndex) {
         return PLATFORMS_SELECTED;
     }
 
+    if (kDown & KEY_X) {
+        if (outSelectedIndex) *outSelectedIndex = nav.selectedIndex;
+        return PLATFORMS_SET_FOLDER;
+    }
+
     return PLATFORMS_NONE;
 }
 
