@@ -19,6 +19,11 @@
 #define SOC_BUFFER_SIZE (1024 * 1024)
 #define SOC_ALIGNMENT 0x1000
 
+// curl defaults to 16KB reads. The 3DS pays a real cost per syscall and per SD
+// write, so larger chunks measurably raise throughput.
+#define DOWNLOAD_READ_BUFFER (128 * 1024)
+#define DOWNLOAD_WRITE_BUFFER (256 * 1024)
+
 static u32 *socBuffer = NULL;
 static bool socReady = false;
 static bool curlReady = false;
@@ -299,9 +304,17 @@ bool http_download_to_file(const char *url, const char *destPath, HttpProgressCb
         return false;
     }
 
+    // Batch stdio into large SD writes. The card is slow per-operation, so
+    // fewer, bigger writes beat many small ones.
+    char *writeBuffer = malloc(DOWNLOAD_WRITE_BUFFER);
+    if (writeBuffer) {
+        setvbuf(file, writeBuffer, _IOFBF, DOWNLOAD_WRITE_BUFFER);
+    }
+
     CURL *curl = curl_easy_init();
     if (!curl) {
         fclose(file);
+        free(writeBuffer);
         remove(destPath);
         return false;
     }
@@ -313,6 +326,7 @@ bool http_download_to_file(const char *url, const char *destPath, HttpProgressCb
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_file);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &state);
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (long)DOWNLOAD_READ_BUFFER);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, report_progress);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
@@ -328,6 +342,7 @@ bool http_download_to_file(const char *url, const char *destPath, HttpProgressCb
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     fclose(file);
+    free(writeBuffer);
 
     if (code != CURLE_OK) {
         if (state.cancelled) {

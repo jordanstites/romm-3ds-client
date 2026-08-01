@@ -15,14 +15,25 @@
 #define SCREEN_BOTTOM_HEIGHT 240
 
 // Colors (RGBA8 format)
-#define UI_COLOR_BG C2D_Color32(0x1a, 0x1a, 0x2e, 0xFF)
-#define UI_COLOR_TEXT C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF)
-#define UI_COLOR_TEXT_DIM C2D_Color32(0x88, 0x88, 0x88, 0xFF)
-#define UI_COLOR_SELECTED C2D_Color32(0x4a, 0x4a, 0xe0, 0xFF)
-#define UI_COLOR_ACCENT C2D_Color32(0x7c, 0x3a, 0xed, 0xFF)
-#define UI_COLOR_HEADER C2D_Color32(0x2d, 0x2d, 0x44, 0xFF)
-#define UI_COLOR_SCROLLBAR_TRACK C2D_Color32(0x3a, 0x3a, 0x50, 0xFF)
-#define UI_COLOR_SCROLLBAR_THUMB C2D_Color32(0x6a, 0x6a, 0x90, 0xFF)
+// RomM's own dark theme, from frontend/src/styles/themes.ts, so the console
+// looks like the web UI rather than approximating it.
+//   background #0D1117   surface #161B22   toplayer #1C2330
+//   primary #8B74E8      secondary #9E8CD6  accent  #E1A38D
+#define UI_COLOR_BG C2D_Color32(0x0D, 0x11, 0x17, 0xFF)
+#define UI_COLOR_TEXT C2D_Color32(0xFE, 0xFD, 0xFE, 0xFF)   // romm-white
+#define UI_COLOR_TEXT_DIM C2D_Color32(0x9E, 0x8C, 0xD6, 0xFF) // secondary
+#define UI_COLOR_SELECTED C2D_Color32(0x60, 0x43, 0xC8, 0xFF) // primary-darken
+#define UI_COLOR_ACCENT C2D_Color32(0x8B, 0x74, 0xE8, 0xFF)   // primary
+#define UI_COLOR_HEADER C2D_Color32(0x16, 0x1B, 0x22, 0xFF)   // surface
+#define UI_COLOR_SURFACE C2D_Color32(0x1C, 0x23, 0x30, 0xFF)  // toplayer
+#define UI_COLOR_SCROLLBAR_TRACK C2D_Color32(0x1C, 0x23, 0x30, 0xFF)
+#define UI_COLOR_SCROLLBAR_THUMB C2D_Color32(0x8B, 0x74, 0xE8, 0xFF)
+
+// Status colours, also RomM's
+#define UI_COLOR_SUCCESS C2D_Color32(0x3F, 0xB9, 0x50, 0xFF) // romm-green
+#define UI_COLOR_DANGER C2D_Color32(0xDA, 0x36, 0x33, 0xFF)  // romm-red
+#define UI_COLOR_INFO C2D_Color32(0x00, 0x70, 0xF3, 0xFF)    // romm-blue
+#define UI_COLOR_GOLD C2D_Color32(0xFF, 0xD7, 0x00, 0xFF)    // romm-gold
 
 // Layout constants
 #define UI_PADDING 8

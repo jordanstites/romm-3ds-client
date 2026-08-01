@@ -115,25 +115,41 @@ static void set_download_name(const char *slug, const char *name) {
     downloadName = downloadNameBuf;
 }
 
-// Progress callback shared by download and extraction
-// Returns true to continue, false to cancel
+// Progress callback shared by download and extraction.
+// Returns true to continue, false to cancel.
+//
+// This runs once per transfer chunk -- thousands of times for a large ROM --
+// and C3D_FRAME_SYNCDRAW blocks until the next vblank. Rendering on every call
+// therefore caps throughput at 60 chunks per second no matter how fast the
+// network is, which is what made downloads crawl. Redraw on a timer instead;
+// input is still polled every call so cancelling stays responsive.
+#define PROGRESS_REDRAW_INTERVAL_MS 80
+
 static bool progress_callback(uint64_t current, uint64_t total) {
-    float progress = total > 0 ? (float)current / total : -1.0f;
+    static u64 lastRedrawAt = 0;
 
-    char sizeText[64];
-    if (total > 0) {
-        snprintf(sizeText, sizeof(sizeText), "%.1f / %.1f MB", current / (1024.0f * 1024.0f),
-                 total / (1024.0f * 1024.0f));
-    } else {
-        snprintf(sizeText, sizeof(sizeText), "%.1f MB", current / (1024.0f * 1024.0f));
+    u64 now = osGetTime();
+    bool finished = (total > 0 && current >= total);
+    if (finished || now - lastRedrawAt >= PROGRESS_REDRAW_INTERVAL_MS) {
+        lastRedrawAt = now;
+
+        float progress = total > 0 ? (float)current / total : -1.0f;
+
+        char sizeText[64];
+        if (total > 0) {
+            snprintf(sizeText, sizeof(sizeText), "%.1f / %.1f MB", current / (1024.0f * 1024.0f),
+                     total / (1024.0f * 1024.0f));
+        } else {
+            snprintf(sizeText, sizeof(sizeText), "%.1f MB", current / (1024.0f * 1024.0f));
+        }
+
+        C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+        C2D_TargetClear(topScreen, UI_COLOR_BG);
+        C2D_SceneBegin(topScreen);
+        ui_draw_progress(progress, progressLabel, sizeText, downloadName, downloadQueueText);
+        bottom_draw();
+        C3D_FrameEnd(0);
     }
-
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-    C2D_TargetClear(topScreen, UI_COLOR_BG);
-    C2D_SceneBegin(topScreen);
-    ui_draw_progress(progress, progressLabel, sizeText, downloadName, downloadQueueText);
-    bottom_draw();
-    C3D_FrameEnd(0);
 
     return !bottom_check_cancel();
 }
@@ -1031,6 +1047,11 @@ static void draw_top_screen(void) {
 
 int main(int argc, char *argv[]) {
     gfxInitDefault();
+
+    // New 3DS boots homebrew at the Old 3DS's 268MHz. This unlocks 804MHz and
+    // the extra L2 cache, and is a no-op on an Old 3DS. Worth roughly 3x on
+    // anything CPU-bound, which at these transfer sizes is most of it.
+    osSetSpeedupEnable(true);
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
