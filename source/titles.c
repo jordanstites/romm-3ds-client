@@ -28,6 +28,16 @@ static InstalledTitle titles[TITLES_MAX];
 static int titleCount = 0;
 static bool amReady = false;
 
+// Tallied per scan so one run reports exactly where SMDH reading breaks,
+// instead of needing a separate reflash per hypothesis.
+static struct {
+    int openFailed;
+    int shortRead;
+    int badMagic;
+    int emptyName;
+    Result firstError;
+} smdhFailures;
+
 bool titles_init(void) {
     if (amReady) return true;
 
@@ -137,16 +147,8 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     }
 
     if (!opened) {
-        // Reported once at error level rather than per title: the default log
-        // level is INFO, so a debug-level message here would never be seen, and
-        // this failure silently breaks every name-based match.
-        static bool reported = false;
-        if (!reported) {
-            reported = true;
-            log_error("Cannot read title names: SMDH open failed (0x%08lX)", res);
-            log_error("  tried title %08lX/%08lX media %u", (unsigned long)lowId, (unsigned long)highId,
-                      (unsigned)media);
-        }
+        if (smdhFailures.openFailed == 0) smdhFailures.firstError = res;
+        smdhFailures.openFailed++;
         return false;
     }
 
@@ -164,8 +166,8 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     FSFILE_Close(file);
 
     if (R_FAILED(res) || read < wanted) {
-        log_debug("SMDH read short for %08lX: %lu of %u bytes (0x%08lX)", (unsigned long)lowId, (unsigned long)read,
-                  (unsigned)wanted, res);
+        if (smdhFailures.shortRead == 0) smdhFailures.firstError = res;
+        smdhFailures.shortRead++;
         free(buffer);
         return false;
     }
@@ -173,7 +175,8 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     u32 magic;
     memcpy(&magic, buffer, sizeof(magic));
     if (magic != SMDH_MAGIC) {
-        log_debug("SMDH magic wrong for %08lX: %08lX", (unsigned long)lowId, (unsigned long)magic);
+        if (smdhFailures.badMagic == 0) smdhFailures.firstError = (Result)magic;
+        smdhFailures.badMagic++;
         free(buffer);
         return false;
     }
@@ -188,6 +191,7 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     }
 
     free(buffer);
+    if (out[0] == '\0') smdhFailures.emptyName++;
     return out[0] != '\0';
 }
 
@@ -243,6 +247,7 @@ static void scan_media(FS_MediaType media) {
 
 int titles_scan(void) {
     titleCount = 0;
+    memset(&smdhFailures, 0, sizeof(smdhFailures));
     if (!titles_init()) return 0;
 
     scan_media(MEDIATYPE_SD);
@@ -255,7 +260,12 @@ int titles_scan(void) {
     }
     log_info("Found %d installed title(s), %d named; VC games included", titleCount, named);
     if (named < titleCount) {
-        log_error("%d title(s) have no readable name; matching will fail for those", titleCount - named);
+        // One line per failure mode, so a single run identifies the cause:
+        // an open failure is access or path, a short read is size, bad magic
+        // means we opened the wrong file entirely.
+        log_error("%d title(s) unnamed - open:%d short:%d magic:%d empty:%d first:0x%08lX", titleCount - named,
+                  smdhFailures.openFailed, smdhFailures.shortRead, smdhFailures.badMagic, smdhFailures.emptyName,
+                  (unsigned long)smdhFailures.firstError);
     }
     return titleCount;
 }
