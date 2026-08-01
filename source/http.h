@@ -24,9 +24,18 @@
 // already hold.
 #define HTTP_MAX_RESPONSE_SIZE (2 * 1024 * 1024)
 
-// curl's compiled-in default on devkitPro's 3ds-curl build. Luma3DS ships this
-// bundle (Mozilla-derived, contains ISRG Root X1) as part of Homebrew Menu.
+// Certificate authorities are looked for in this order:
+//
+//  1. A bundle the user dropped next to our config, for a self-signed or
+//     private CA. Homelab servers frequently need this and there is otherwise
+//     no way to trust one without disabling verification outright.
+//  2. Luma3DS's bundle, shipped with Homebrew Menu for libcurl. Present on a
+//     normal setup and kept current by the CFW rather than by us.
+//  3. A copy bundled in our own RomFS, so HTTPS still works on a console that
+//     has neither.
+#define HTTP_USER_CA_BUNDLE "sdmc:/3ds/romm-3ds-client/cacert.pem"
 #define HTTP_SYSTEM_CA_BUNDLE "sdmc:/config/ssl/cacert.pem"
+#define HTTP_BUNDLED_CA "romfs:/cacert.pem"
 
 typedef struct {
     char *data; // NUL-terminated body; caller frees with http_response_free
@@ -45,6 +54,9 @@ void http_exit(void);
 // True if a CA bundle was found at startup. When false, HTTPS will fail --
 // surface that to the user rather than silently disabling verification.
 bool http_has_ca_bundle(void);
+
+// Which bundle is in use, for display and diagnostics.
+const char *http_ca_bundle_path(void);
 
 // The one origin credentials may be sent to. Requests to anywhere else -- most
 // importantly a redirect target -- are issued without the token.

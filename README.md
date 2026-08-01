@@ -71,6 +71,23 @@ save root (`main`, not `<titleId>/main`), which is what lets the same file be
 used by an emulator.
 
 
+## HTTPS
+
+Certificate verification is always on; there is no option to disable it.
+Certificate authorities are taken from the first of these that exists:
+
+1. `sdmc:/3ds/romm-3ds-client/cacert.pem` — put a private or self-signed CA here
+2. `sdmc:/config/ssl/cacert.pem` — Luma3DS ships this and keeps it current
+3. A copy bundled in the app, so HTTPS works on a console that has neither
+
+Let's Encrypt works without any setup: ISRG Root X1 is in both the system and
+bundled stores. The usual failure is not the certificate but **the console's
+clock** — Let's Encrypt certificates are short-lived, and a wrong date makes a
+valid one look expired or not-yet-valid. The app warns at startup if the clock
+predates its own build.
+
+A server that only offers TLS 1.3 will not connect; mbedTLS 2.28 speaks 1.2.
+
 ## Building
 
 Requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the 3DS
@@ -93,10 +110,10 @@ build does not, since it uses devkitPro's own `smdhtool`.
 
 - **TLS.** The 3DS's native `ssl:C` module tops out at TLS 1.1 and its root store
   has no ISRG anchor, so `httpcAddTrustedRootCA` cannot rescue it against a
-  modern server. The transport is curl + mbedTLS with verification **on**, using
-  the CA bundle Luma3DS ships at `sdmc:/config/ssl/cacert.pem`. Note mbedTLS
-  validates certificate dates, which the native module does not — a wrong console
-  clock will look like a TLS failure.
+  modern server. The transport is curl + mbedTLS 2.28 (TLS 1.2) with
+  verification **on**. Note mbedTLS validates certificate dates, which the
+  native module does not — so a wrong console clock looks exactly like an
+  untrusted certificate. Checked at startup against the build date.
 - **Hashing.** RomM's `content_hash` is MD5 of the file's bytes, despite its docs
   implying sha1. For a zip it is instead a composite: MD5 of `<name>:<md5>` lines
   sorted by name and joined with newlines.

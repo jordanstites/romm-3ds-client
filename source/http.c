@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 #include <unistd.h>
 #include <3ds.h>
 
@@ -29,7 +30,7 @@
 static u32 *socBuffer = NULL;
 static bool socReady = false;
 static bool curlReady = false;
-static bool caBundleFound = false;
+static char caBundlePath[128] = "";
 static char authHeader[576] = "";
 
 // Origin (scheme://host:port) of the configured server. The bearer token is
@@ -41,6 +42,29 @@ static char trustedOrigin[256] = "";
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
+
+// A 3DS with a wrong clock rejects perfectly good certificates, because
+// mbedTLS validates notBefore/notAfter while the console's own SSL module does
+// not. Let's Encrypt certificates are short-lived, so this bites sooner there
+// than with a long-dated certificate. Checking at startup turns a confusing
+// TLS error into an obvious cause.
+static void warn_if_clock_looks_wrong(void) {
+    // The build date is a sound lower bound: this binary cannot legitimately be
+    // running before it was compiled. __DATE__ is "Mmm dd yyyy"; only the year
+    // is needed, and strptime is unavailable here.
+    int builtYear = atoi(__DATE__ + 7);
+    if (builtYear < 2000) return;
+
+    time_t now = time(NULL);
+    struct tm current;
+    if (!gmtime_r(&now, &current)) return;
+
+    int currentYear = current.tm_year + 1900;
+    if (currentYear < builtYear) {
+        log_error("The console's clock reads %d, before this build (%d).", currentYear, builtYear);
+        log_error("HTTPS will fail until the date is fixed in System Settings.");
+    }
+}
 
 bool http_init(void) {
     socBuffer = (u32 *)memalign(SOC_ALIGNMENT, SOC_BUFFER_SIZE);
@@ -65,14 +89,26 @@ bool http_init(void) {
     }
     curlReady = true;
 
-    FILE *ca = fopen(HTTP_SYSTEM_CA_BUNDLE, "r");
-    if (ca) {
-        caBundleFound = true;
-        fclose(ca);
-    } else {
-        // Not fatal: plain HTTP still works, which is how we develop on the LAN.
-        log_error("No CA bundle at %s -- HTTPS will fail until one exists", HTTP_SYSTEM_CA_BUNDLE);
+    static const char *candidates[] = {HTTP_USER_CA_BUNDLE, HTTP_SYSTEM_CA_BUNDLE, HTTP_BUNDLED_CA};
+    caBundlePath[0] = '\0';
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        FILE *ca = fopen(candidates[i], "r");
+        if (ca) {
+            fclose(ca);
+            snprintf(caBundlePath, sizeof(caBundlePath), "%s", candidates[i]);
+            break;
+        }
     }
+
+    if (caBundlePath[0] != '\0') {
+        log_info("Verifying certificates against %s", caBundlePath);
+    } else {
+        // Not fatal: plain HTTP still works, which is how development on a LAN
+        // happens. HTTPS will fail, loudly, rather than silently unverified.
+        log_error("No CA bundle found -- HTTPS will fail. Is romfs missing from the build?");
+    }
+
+    warn_if_clock_looks_wrong();
 
     log_info("HTTP transport ready (%s)", curl_version());
     return true;
@@ -94,7 +130,11 @@ void http_exit(void) {
 }
 
 bool http_has_ca_bundle(void) {
-    return caBundleFound;
+    return caBundlePath[0] != '\0';
+}
+
+const char *http_ca_bundle_path(void) {
+    return caBundlePath;
 }
 
 // Copies "scheme://host[:port]" out of a URL, stopping at the path.
@@ -201,8 +241,8 @@ static void apply_common_options(CURL *curl, const char *url, struct curl_slist 
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    if (caBundleFound) {
-        curl_easy_setopt(curl, CURLOPT_CAINFO, HTTP_SYSTEM_CA_BUNDLE);
+    if (caBundlePath[0] != '\0') {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, caBundlePath);
     }
 
     if (authHeader[0] != '\0' && url_is_trusted(url)) {
@@ -228,11 +268,29 @@ static bool next_redirect(CURL *curl, long status, char *out, size_t outLen) {
 // The 3DS RTC drifts and users set it wrong, so this misfires often enough to
 // deserve its own message rather than a raw curl error.
 static void log_transport_failure(CURLcode code, const char *url) {
-    if (code == CURLE_PEER_FAILED_VERIFICATION || code == CURLE_SSL_CACERT_BADFILE) {
-        log_error("TLS verification failed for %s: %s", url, curl_easy_strerror(code));
-        log_error("If the certificate looks fine, check the console's clock and date.");
-    } else {
+    switch (code) {
+    case CURLE_PEER_FAILED_VERIFICATION:
+    case CURLE_SSL_CACERT_BADFILE:
+        log_error("Certificate rejected for %s", url);
+        // mbedTLS checks notBefore/notAfter, which the 3DS's own SSL module
+        // does not -- so a console whose clock is wrong looks exactly like an
+        // untrusted certificate, and that is by far the more common cause.
+        log_error("Check the console's date and time first.");
+        log_error("Self-signed? Put its CA at %s", HTTP_USER_CA_BUNDLE);
+        break;
+    case CURLE_SSL_CONNECT_ERROR:
+        log_error("TLS handshake failed for %s", url);
+        log_error("The server may require TLS 1.3; mbedTLS 2.28 speaks 1.2.");
+        break;
+    case CURLE_COULDNT_RESOLVE_HOST:
+        log_error("Could not resolve the host in %s", url);
+        break;
+    case CURLE_COULDNT_CONNECT:
+        log_error("Could not connect to %s", url);
+        break;
+    default:
         log_error("Request to %s failed: %s", url, curl_easy_strerror(code));
+        break;
     }
 }
 

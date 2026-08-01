@@ -45,7 +45,7 @@ SOURCES       := source source/screens source/cJSON source/qrcodegen
 INCLUDES      := source
 DATA          :=
 GRAPHICS      :=
-ROMFS         :=
+ROMFS         := romfs
 
 #---------------------------------------------------------------------------------
 # Options for code generation
@@ -131,6 +131,15 @@ export LIBPATHS       := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 export _3DSXDEPS      := $(if $(NO_SMDH),,$(OUTPUT).smdh)
 export _3DSXFLAGS     := $(if $(NO_SMDH),,--smdh=$(OUTPUT).smdh)
+
+# Upstream hardcoded the flags above with ROMFS always empty, so nothing ever
+# passed --romfs and anything placed in romfs/ was silently left out of the
+# .3dsx. The CA bundle lives there, so this is load-bearing.
+ifneq ($(strip $(ROMFS)),)
+export _3DSXFLAGS     += --romfs=$(CURDIR)/$(ROMFS)
+# Absolute: the recipe using these runs from the build directory.
+export _3DSXDEPS      += $(shell find $(CURDIR)/$(ROMFS) -type f 2>/dev/null)
+endif
 
 .PHONY: all clean cia 3dsx dist format format-check run
 
