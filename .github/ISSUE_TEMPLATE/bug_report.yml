@@ -1,50 +1,73 @@
 name: Bug Report
-description: Report a bug or issue with Rommlet
+description: Report a problem with the RomM 3DS client
 labels: ["bug"]
 body:
   - type: input
-    id: rommlet-version
+    id: app-version
     attributes:
-      label: Rommlet Version
-      description: Found in the About screen in the app
-      placeholder: "1.0.0"
+      label: App version
+      description: Shown on the About screen (info icon)
+      placeholder: "0.1.0"
     validations:
       required: true
   - type: input
     id: romm-version
     attributes:
-      label: RomM Version
-      description: The version of your RomM server
-      placeholder: "4.6.0"
+      label: RomM server version
+      description: Save sync needs 4.9.0 or newer
+      placeholder: "5.1.0"
     validations:
       required: true
   - type: dropdown
     id: hardware
     attributes:
-      label: 3DS Hardware
+      label: Console
       options:
-        - Old 3DS
-        - Old 3DS XL
-        - Old 2DS
-        - New 3DS
-        - New 3DS XL
+        - New 3DS / New 3DS XL
         - New 2DS XL
+        - Old 3DS / Old 3DS XL
+        - Old 2DS
         - Other
     validations:
       required: true
   - type: dropdown
-    id: launch-method
+    id: area
     attributes:
-      label: Launched Via
+      label: What were you doing?
       options:
-        - Home Menu (CIA)
-        - Homebrew Launcher (3DSX)
+        - Pairing with the server
+        - Browsing or downloading ROMs
+        - Save sync (GB / GBA / DS / SNES etc.)
+        - Native 3DS save upload or restore
+        - Something else
     validations:
       required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform or game involved
+      placeholder: "Nintendo DS, or Pokemon Y"
   - type: textarea
     id: description
     attributes:
-      label: Description
-      description: What happened? What did you expect to happen?
+      label: What happened?
+      description: What did you expect instead?
     validations:
       required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: On-device log
+      description: >
+        Open the bug icon on the bottom screen and copy anything relevant.
+        Errors there usually name the exact cause.
+      render: text
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash details
+      description: >
+        If the console crashed, Luma shows an exception screen and writes a dump
+        to sdmc:/luma/dumps/. The exception type plus the PC and LR register
+        values are enough to locate the fault precisely.
+      render: text

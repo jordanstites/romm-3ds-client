@@ -1,5 +1,5 @@
 {
-  "name": "Rommlet 3DS Development",
+  "name": "RomM 3DS Client",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."
@@ -18,11 +18,12 @@
         "C_Cpp.default.includePath": [
           "${workspaceFolder}/source",
           "/opt/devkitpro/libctru/include",
+          "/opt/devkitpro/portlibs/3ds/include",
           "/opt/devkitpro/devkitARM/arm-none-eabi/include"
         ]
       }
     }
   },
-  "postCreateCommand": "echo '✅ Ready for 3DS development! Run: make'",
+  "postCreateCommand": "echo 'Ready. Run: make'",
   "remoteUser": "vscode"
 }

@@ -18,35 +18,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build tools
+      - name: Install 3DS portlibs
+        run: dkp-pacman -S --noconfirm --needed 3ds-curl 3ds-mbedtls 3ds-zlib
+
+      - name: Install host tools
         run: |
-          apt-get update && apt-get install -y --no-install-recommends clang-format librsvg2-bin wget unzip zip
-          mkdir -p /opt/3ds-tools && cd /opt/3ds-tools
-          wget -q https://github.com/Epicpkmn11/bannertool/releases/download/v1.2.2/bannertool.zip
-          unzip -q bannertool.zip
-          cp linux-x86_64/bannertool /usr/local/bin/
-          chmod +x /usr/local/bin/bannertool
-          wget -q https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip
-          unzip -q makerom-v0.18.4-ubuntu_x86_64.zip
-          cp makerom /usr/local/bin/
-          chmod +x /usr/local/bin/makerom
+          apt-get update
+          apt-get install -y --no-install-recommends clang-format librsvg2-bin
 
       - name: Build
-        run: make EXTRA_CFLAGS=-Werror && make cia
+        run: make EXTRA_CFLAGS=-Werror
 
       - name: Check formatting
         run: make format-check
-
-      - name: Package release
-        run: |
-          cd build/output
-          zip rommlet.zip rommlet.3dsx rommlet.cia
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            build/output/rommlet.zip
-            build/output/rommlet.3dsx
-            build/output/rommlet.cia
+          # Only the .3dsx is published. A CIA build needs bannertool and
+          # makerom, and nothing here has been tested as a CIA -- shipping an
+          # untested artifact alongside a working one invites bug reports about
+          # a path nobody uses.
+          files: build/output/*.3dsx
+          fail_on_unmatched_files: true

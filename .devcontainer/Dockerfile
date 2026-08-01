@@ -1,5 +1,5 @@
-# Rommlet Development Container
-# Based on devkitPro's official devkitARM image for 3DS development
+# RomM 3DS client development container
+# Based on devkitPro's official devkitARM image
 
 FROM devkitpro/devkitarm:latest
 
@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Portlibs the client links against for HTTPS. The base image ships 3ds-dev but
+# not these, so without them the build fails at link time on -lcurl.
+RUN dkp-pacman -S --noconfirm --needed 3ds-curl 3ds-mbedtls 3ds-zlib
 
 # Install bannertool and makerom (3DS tools)
 # These are needed to create CIA files

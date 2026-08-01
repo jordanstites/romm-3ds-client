@@ -1,10 +1,10 @@
 #---------------------------------------------------------------------------------
-# Rommlet - RomM Client for Nintendo 3DS
+# RomM 3DS - a RomM client for Nintendo 3DS
 # Native C build using devkitPro/libctru/citro2d
 #---------------------------------------------------------------------------------
 # Prerequisites:
 #   - devkitPro with devkitARM
-#   - 3ds-dev package: (dkp-)pacman -S 3ds-dev
+#   - (dkp-)pacman -S 3ds-dev 3ds-curl 3ds-mbedtls 3ds-zlib
 #   - bannertool and makerom in PATH (for CIA builds)
 #   - librsvg (for SVG icons): brew install librsvg
 #
@@ -177,7 +177,7 @@ format-check:
 cia: all meta/banner.bin meta/icon.bin
 	$(MAKEROM) -f cia -o $(OUTPUT).cia \
 		-elf $(OUTPUT).elf \
-		-rsf meta/rommlet.rsf \
+		-rsf meta/app.rsf \
 		-icon meta/icon.bin \
 		-banner meta/banner.bin \
 		-DAPP_TITLE="$(APP_TITLE)" \
