@@ -24,6 +24,10 @@
 #define SMDH_LANG_ENGLISH 1
 #define SMDH_LANG_JAPANESE 0
 
+// Full SMDH size: 8 header + 16 title entries + 0x30 settings + 8 reserved
+// + 0x480 small icon + 0x1200 large icon.
+#define SMDH_TOTAL_SIZE 0x36C0
+
 static InstalledTitle titles[TITLES_MAX];
 static int titleCount = 0;
 static bool amReady = false;
@@ -32,6 +36,7 @@ static bool amReady = false;
 // instead of needing a separate reflash per hypothesis.
 static struct {
     int openFailed;
+    int readFailed;
     int shortRead;
     int badMagic;
     int emptyName;
@@ -152,9 +157,11 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
         return false;
     }
 
-    // Only the header and the English entry are needed, not the icon bitmaps,
-    // which are several KB per title.
-    size_t wanted = SMDH_TITLES_OFFSET + SMDH_TITLE_ENTRY_SIZE * (SMDH_LANG_ENGLISH + 1);
+    // Read the whole SMDH even though only the English title is wanted. Asking
+    // for just the header and first entries fails: ExeFS sections are verified
+    // as a unit, so a partial read at offset 0 is refused where a full read
+    // succeeds. The icon bitmaps are most of these 14KB and get discarded.
+    size_t wanted = SMDH_TOTAL_SIZE;
     u8 *buffer = malloc(wanted);
     if (!buffer) {
         FSFILE_Close(file);
@@ -165,8 +172,16 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     res = FSFILE_Read(file, &read, 0, buffer, (u32)wanted);
     FSFILE_Close(file);
 
-    if (R_FAILED(res) || read < wanted) {
-        if (smdhFailures.shortRead == 0) smdhFailures.firstError = res;
+    if (R_FAILED(res)) {
+        if (smdhFailures.readFailed == 0) smdhFailures.firstError = res;
+        smdhFailures.readFailed++;
+        free(buffer);
+        return false;
+    }
+    // A partial read is still usable as long as it covers the English entry.
+    size_t needed = SMDH_TITLES_OFFSET + SMDH_TITLE_ENTRY_SIZE * (SMDH_LANG_ENGLISH + 1);
+    if (read < needed) {
+        if (smdhFailures.shortRead == 0) smdhFailures.firstError = (Result)read;
         smdhFailures.shortRead++;
         free(buffer);
         return false;
@@ -263,8 +278,9 @@ int titles_scan(void) {
         // One line per failure mode, so a single run identifies the cause:
         // an open failure is access or path, a short read is size, bad magic
         // means we opened the wrong file entirely.
-        log_error("%d title(s) unnamed - open:%d short:%d magic:%d empty:%d first:0x%08lX", titleCount - named,
-                  smdhFailures.openFailed, smdhFailures.shortRead, smdhFailures.badMagic, smdhFailures.emptyName,
+        log_error("%d unnamed. open:%d read:%d short:%d", titleCount - named, smdhFailures.openFailed,
+                  smdhFailures.readFailed, smdhFailures.shortRead);
+        log_error("  magic:%d empty:%d first:0x%08lX", smdhFailures.badMagic, smdhFailures.emptyName,
                   (unsigned long)smdhFailures.firstError);
     }
     return titleCount;
