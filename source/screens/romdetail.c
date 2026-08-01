@@ -15,6 +15,12 @@ void romdetail_init(void) {
     scrollOffset = 0;
 }
 
+static char formatNote[96] = "";
+
+void romdetail_set_format_note(const char *note) {
+    snprintf(formatNote, sizeof(formatNote), "%s", note ? note : "");
+}
+
 void romdetail_set_data(RomDetail *detail) {
     currentDetail = detail;
     scrollOffset = 0;
@@ -103,7 +109,14 @@ void romdetail_draw(void) {
     }
 
     // Help text
-    ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
-                 "B: Back \xC2\xB7 X: Link \xC2\xB7 Y: Upload \xC2\xB7 L: Restore \xC2\xB7 R: Install",
-                 UI_COLOR_TEXT_DIM);
+    // What the file actually is, read from its header rather than its
+    // extension. Decides whether Install can work at all.
+    if (formatNote[0]) {
+        ui_draw_text_scaled(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT * 2 - 2, formatNote, UI_COLOR_TEXT_DIM,
+                            0.5f);
+    }
+
+    ui_draw_text_scaled(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
+                        "B: Back \xC2\xB7 X: Link \xC2\xB7 Y: Up \xC2\xB7 L: Restore \xC2\xB7 R: Install",
+                        UI_COLOR_TEXT_DIM, 0.5f);
 }

@@ -21,6 +21,7 @@
 #include "titlemap.h"
 #include "savearchive.h"
 #include "install.h"
+#include "romformat.h"
 #include "http.h"
 #include "cJSON/cJSON.h"
 #include "log.h"
@@ -89,6 +90,10 @@ static void nav_clear(void) {
 // Shared state
 static Config config;
 static AuthToken authToken;
+static RomFormatInfo romDetailFormat;
+
+// Defined further down, but needed by the ROM detail loader above it.
+static bool platform_is_native_3ds(const char *slug);
 static Platform *platforms = NULL;
 static int platformCount = 0;
 static int selectedPlatformIndex = 0;
@@ -488,6 +493,18 @@ static bool open_rom_detail(int romId, const char *slug) {
     if (!romDetail) {
         log_error("Failed to fetch ROM details");
         return false;
+    }
+
+    // Read the file header from the server. Two payoffs: the exact title ID,
+    // which beats matching an installed title by name, and whether a .3ds is
+    // encrypted, which decides what converting it would involve. Costs one
+    // small range request, not a download.
+    memset(&romDetailFormat, 0, sizeof(romDetailFormat));
+    romdetail_set_format_note(NULL);
+    if (platform_is_native_3ds(slug)) {
+        if (romformat_probe(romId, romDetail->fsName, &romDetailFormat)) {
+            romdetail_set_format_note(romformat_describe(&romDetailFormat));
+        }
     }
     romdetail_set_data(romDetail);
     snprintf(currentPlatformSlug, sizeof(currentPlatformSlug), "%s", slug);
@@ -1054,15 +1071,19 @@ static bool install_sink(const void *data, size_t length, void *userdata) {
 static void install_focused_rom(void) {
     if (!romDetail) return;
 
-    const char *ext = strrchr(romDetail->fsName, '.');
-    bool isCia = ext && strcasecmp(ext, ".cia") == 0;
-
-    if (!isCia) {
-        // A .3ds has to be converted before AM will take it. Say so plainly
-        // rather than starting something that cannot finish.
-        log_error("Only .cia files can be installed directly.");
-        log_error("'%s' needs converting first -- use GodMode9.", romDetail->fsName);
+    // The header is authoritative; the extension is only a hint.
+    if (romDetailFormat.probed && !romformat_is_installable(&romDetailFormat)) {
+        log_error("Cannot install directly: %s", romformat_describe(&romDetailFormat));
+        log_error("Convert it with GodMode9 first.");
         return;
+    }
+
+    if (!romDetailFormat.probed) {
+        const char *ext = strrchr(romDetail->fsName, '.');
+        if (!ext || strcasecmp(ext, ".cia") != 0) {
+            log_error("Only .cia files can be installed directly.");
+            return;
+        }
     }
 
     char url[1024];
@@ -1125,9 +1146,20 @@ static void handle_state_rom_detail(u32 kDown) {
         if (!romDetail) return;
 
         sound_play_click();
+
+        // The header gives the title ID outright, so when it is installed the
+        // link is certain and needs no confirmation -- unlike a name match,
+        // which can be wrong and would write a save to the wrong game.
+        if (romDetailFormat.titleId != 0 && titles_find(romDetailFormat.titleId)) {
+            if (titlemap_set(romDetail->id, romDetailFormat.titleId)) {
+                log_info("Linked by title ID %016llX from the ROM header", (unsigned long long)romDetailFormat.titleId);
+                roms_refresh_status();
+                return;
+            }
+        }
+
         nav_push(STATE_ROM_DETAIL);
-        // Suggest the name-matched title, but the link is only made once the
-        // user picks one.
+        // Otherwise fall back to picking by name, which the user confirms.
         installed_init_picker(romDetail->name, romstatus_suggest_title(romDetail->name, romDetail->fsName));
         currentState = STATE_INSTALLED;
         return;
