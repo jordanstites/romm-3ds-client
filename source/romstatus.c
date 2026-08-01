@@ -121,20 +121,32 @@ static void normalize_title(const char *src, char *out, size_t outLen) {
     out[j] = '\0';
 }
 
-// One name is a prefix of the other after normalisation. Prefix rather than
-// substring: "mariokart7" should not match "mariokart" from another entry, but
-// an SMDH name truncated relative to the full ROM name still should.
-static bool titles_look_equivalent(const char *a, const char *b) {
-    if (a[0] == '\0' || b[0] == '\0') return false;
+// Whether two normalised titles denote the same game.
+//
+// A prefix test alone is not enough: a title's own SMDH name frequently drops
+// the series prefix the library keeps, as in "Happy Home Designer" against
+// "Animal Crossing: Happy Home Designer". So the shorter name matching
+// anywhere inside the longer one counts, guarded by a length floor so short
+// generic words cannot pull in unrelated entries.
+#define MATCH_MIN_PREFIX 6
+#define MATCH_MIN_CONTAINED 10
 
+static bool titles_look_equivalent(const char *a, const char *b) {
     size_t la = strlen(a);
     size_t lb = strlen(b);
-    size_t shorter = la < lb ? la : lb;
+    if (la == 0 || lb == 0) return false;
 
-    // Too short to be meaningful; "wii" would match far too much.
-    if (shorter < 6) return la == lb && strcmp(a, b) == 0;
+    const char *shortStr = la <= lb ? a : b;
+    const char *longStr = la <= lb ? b : a;
+    size_t shortLen = la <= lb ? la : lb;
 
-    return strncmp(a, b, shorter) == 0;
+    if (shortLen < MATCH_MIN_PREFIX) return la == lb && strcmp(a, b) == 0;
+
+    if (strncmp(a, b, shortLen) == 0) return true;
+
+    if (shortLen >= MATCH_MIN_CONTAINED && strstr(longStr, shortStr) != NULL) return true;
+
+    return false;
 }
 
 static bool looks_installed(const char *romName, const char *fsName) {

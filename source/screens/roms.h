@@ -25,6 +25,9 @@ void roms_set_data(Rom *roms, int count, int total, const char *platformName);
 // startup and when entering a platform.
 void roms_set_status_context(const Config *config, const char *platformSlug);
 
+// Recompute cached status, e.g. after a download or a sync changes it.
+void roms_refresh_status(void);
+
 // Append more ROM data (for infinite scroll)
 void roms_append_data(Rom *roms, int count);
 

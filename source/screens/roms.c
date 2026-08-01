@@ -11,6 +11,12 @@
 #include <string.h>
 
 static Rom *romList = NULL;
+// Status is filesystem work -- several stat() calls per ROM, plus a scan of
+// every installed title. Computing it in the draw loop meant redoing all of it
+// for every visible row at 60fps, which made the 3DS platform crawl. Cache it
+// alongside the list and refresh only when the list changes.
+static RomStatus *statusList = NULL;
+static int statusCount = 0;
 static char currentPlatform[128] = "";
 static char currentPlatformSlug[CONFIG_MAX_SLUG_LEN] = "";
 static const Config *statusConfig = NULL;
@@ -19,6 +25,25 @@ static ListNav nav;
 void roms_set_status_context(const Config *config, const char *platformSlug) {
     statusConfig = config;
     snprintf(currentPlatformSlug, sizeof(currentPlatformSlug), "%s", platformSlug ? platformSlug : "");
+}
+
+// Recompute cached status for rows [from, count).
+static void refresh_status(int from, int count) {
+    if (!statusConfig || !currentPlatformSlug[0] || !romList) return;
+
+    RomStatus *grown = realloc(statusList, (size_t)count * sizeof(RomStatus));
+    if (!grown) return;
+    statusList = grown;
+
+    for (int i = from; i < count; i++) {
+        statusList[i] =
+            romstatus_for(statusConfig, romList[i].id, currentPlatformSlug, romList[i].name, romList[i].fsName);
+    }
+    statusCount = count;
+}
+
+void roms_refresh_status(void) {
+    refresh_status(0, statusCount);
 }
 
 void roms_init(void) {
@@ -32,6 +57,11 @@ void roms_clear(void) {
         free(romList);
         romList = NULL;
     }
+    if (statusList) {
+        free(statusList);
+        statusList = NULL;
+    }
+    statusCount = 0;
     currentPlatform[0] = '\0';
     listnav_reset(&nav);
 }
@@ -43,6 +73,8 @@ void roms_set_data(Rom *roms, int count, int total, const char *platformName) {
     romList = roms;
     listnav_set(&nav, count, total);
     snprintf(currentPlatform, sizeof(currentPlatform), "%s", platformName);
+    statusCount = 0;
+    refresh_status(0, count);
 }
 
 void roms_append_data(Rom *roms, int count) {
@@ -56,8 +88,12 @@ void roms_append_data(Rom *roms, int count) {
 
     romList = newList;
     memcpy(&romList[nav.count], roms, count * sizeof(Rom));
+    int previous = nav.count;
     nav.count += count;
     free(roms);
+
+    // Only the newly appended rows need computing.
+    refresh_status(previous, nav.count);
 }
 
 bool roms_needs_more_data(void) {
@@ -138,11 +174,7 @@ void roms_draw(void) {
                 ui_draw_rect(UI_PADDING, y, itemWidth, UI_LINE_HEIGHT, UI_COLOR_SELECTED);
             }
 
-            RomStatus status = {0};
-            if (statusConfig && currentPlatformSlug[0]) {
-                status = romstatus_for(statusConfig, romList[i].id, currentPlatformSlug, romList[i].name,
-                                       romList[i].fsName);
-            }
+            RomStatus status = (i < statusCount) ? statusList[i] : (RomStatus){0};
 
             // Truncate the name rather than letting it run under the badges.
             char label[288];
