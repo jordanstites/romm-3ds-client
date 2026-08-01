@@ -905,8 +905,10 @@ static void upload_native_save(void) {
     // slot is always sent: a null slot makes the server treat every save as an
     // unconditional upload and never resolve conflicts.
     char url[1024];
+    // api_get_base_url() rather than config.serverUrl: the API layer has
+    // already stripped a trailing slash, which would otherwise produce "//api".
     snprintf(url, sizeof(url), "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s&overwrite=true",
-             config.serverUrl, romDetail->id, authToken.deviceId);
+             api_get_base_url(), romDetail->id, authToken.deviceId);
 
     HttpResponse response;
     bool sent = http_post_file(url, "saveFile", zipPath, &response);
