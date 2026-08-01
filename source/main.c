@@ -393,6 +393,56 @@ static bool download_queue_entry(QueueEntry *entry) {
     return true;
 }
 
+// Index ROMs that are already sitting on the SD card.
+//
+// The library index is normally written when a download completes, but ROMs
+// copied on by hand -- or downloaded before this app existed -- have no entry,
+// and save sync can only map a save file back to a rom_id through that index.
+// Without this, a card full of games reports zero saves.
+//
+// Only platforms with a configured folder are visited, which bounds the work to
+// systems the user actually downloads to.
+static void rescan_library(void) {
+    if (!platforms || platformCount == 0) return;
+
+    int indexed = 0;
+
+    for (int p = 0; p < platformCount; p++) {
+        const char *slug = platforms[p].slug;
+        const char *folderName = config_get_platform_folder(slug);
+        if (!folderName || folderName[0] == '\0') continue;
+
+        char message[192];
+        snprintf(message, sizeof(message), "Indexing %.120s...", platforms[p].displayName);
+        show_loading(message);
+
+        int offset = 0;
+        int total = 0;
+        do {
+            int count = 0;
+            Rom *roms = api_get_roms(platforms[p].id, offset, ROM_PAGE_SIZE, &count, &total);
+            if (!roms || count == 0) {
+                if (roms) api_free_roms(roms, count);
+                break;
+            }
+
+            for (int i = 0; i < count; i++) {
+                // check_file_exists() also resolves extracted zip contents, so a
+                // ROM downloaded as a .zip and unpacked still counts as present.
+                if (check_file_exists(slug, roms[i].fsName)) {
+                    library_record(roms[i].id, slug, roms[i].fsName);
+                    indexed++;
+                }
+            }
+
+            api_free_roms(roms, count);
+            offset += count;
+        } while (offset < total);
+    }
+
+    log_info("Library rescan indexed %d ROM(s) present on this card", indexed);
+}
+
 // Fetch and display ROM detail, updating all navigation state
 static bool open_rom_detail(int romId, const char *slug) {
     show_loading("Loading ROM details...");
@@ -528,6 +578,9 @@ static void handle_bottom_action(BottomAction action) {
         nav_push(currentState);
         bottom_set_mode(BOTTOM_MODE_SYNC);
         currentState = STATE_SYNC;
+        // Pick up ROMs that were never downloaded through this app, otherwise
+        // their saves have no rom_id to sync against.
+        rescan_library();
         // Scanning and hashing block, so show something first.
         show_loading("Scanning saves...");
         sync_screen_init(&config, &authToken);
