@@ -120,11 +120,33 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     FS_Path binArchivePath = {PATH_BINARY, sizeof(archivePath), archivePath};
     FS_Path binFilePath = {PATH_BINARY, sizeof(filePath), filePath};
 
+    // SAVEDATA_AND_CONTENT covers ExeFS and RomFS; the "2" variant is
+    // ExeFS-only and is accepted in some contexts where the first is refused.
+    // Try both before giving up on a title.
+    static const FS_ArchiveID archives[] = {ARCHIVE_SAVEDATA_AND_CONTENT, ARCHIVE_SAVEDATA_AND_CONTENT2};
+
     Handle file;
-    Result res =
-        FSUSER_OpenFileDirectly(&file, ARCHIVE_SAVEDATA_AND_CONTENT, binArchivePath, binFilePath, FS_OPEN_READ, 0);
-    if (R_FAILED(res)) {
-        log_debug("SMDH open failed for %08lX (0x%08lX)", (unsigned long)lowId, res);
+    Result res = 0;
+    bool opened = false;
+    for (size_t a = 0; a < sizeof(archives) / sizeof(archives[0]); a++) {
+        res = FSUSER_OpenFileDirectly(&file, archives[a], binArchivePath, binFilePath, FS_OPEN_READ, 0);
+        if (R_SUCCEEDED(res)) {
+            opened = true;
+            break;
+        }
+    }
+
+    if (!opened) {
+        // Reported once at error level rather than per title: the default log
+        // level is INFO, so a debug-level message here would never be seen, and
+        // this failure silently breaks every name-based match.
+        static bool reported = false;
+        if (!reported) {
+            reported = true;
+            log_error("Cannot read title names: SMDH open failed (0x%08lX)", res);
+            log_error("  tried title %08lX/%08lX media %u", (unsigned long)lowId, (unsigned long)highId,
+                      (unsigned)media);
+        }
         return false;
     }
 
