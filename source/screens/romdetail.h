@@ -8,7 +8,12 @@
 #include <3ds.h>
 #include "../api.h"
 
-typedef enum { ROMDETAIL_NONE, ROMDETAIL_BACK, ROMDETAIL_LINK_TITLE } RomDetailResult;
+typedef enum {
+    ROMDETAIL_NONE,
+    ROMDETAIL_BACK,
+    ROMDETAIL_LINK_TITLE,
+    ROMDETAIL_UPLOAD_SAVE
+} RomDetailResult;
 
 // Initialize ROM detail screen
 void romdetail_init(void);

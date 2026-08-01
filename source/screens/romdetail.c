@@ -32,6 +32,12 @@ RomDetailResult romdetail_update(u32 kDown) {
         return ROMDETAIL_LINK_TITLE;
     }
 
+    // Upload this title's save archive to RomM. Read-only on the console side,
+    // so it cannot damage a save.
+    if (kDown & KEY_Y) {
+        return ROMDETAIL_UPLOAD_SAVE;
+    }
+
     // Scroll description if needed
     if (kDown & KEY_DOWN) {
         scrollOffset++;
@@ -87,5 +93,5 @@ void romdetail_draw(void) {
 
     // Help text
     ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
-                 "B: Back \xC2\xB7 X: Link installed title", UI_COLOR_TEXT_DIM);
+                 "B: Back \xC2\xB7 X: Link \xC2\xB7 Y: Upload save", UI_COLOR_TEXT_DIM);
 }

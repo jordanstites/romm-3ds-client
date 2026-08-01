@@ -19,6 +19,8 @@
 #include "titles.h"
 #include "romstatus.h"
 #include "titlemap.h"
+#include "savearchive.h"
+#include "http.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -861,6 +863,76 @@ static bool platform_is_native_3ds(const char *slug) {
     return slug && (strcmp(slug, "3ds") == 0 || strcmp(slug, "new-nintendo-3ds") == 0);
 }
 
+// Export a native 3DS title's save archive and upload it to RomM.
+//
+// Read-only against the console: the archive is opened for reading, packed to a
+// zip on the SD card, and uploaded. Nothing is written back to the save, so a
+// failure here cannot damage save data.
+static void upload_native_save(void) {
+    if (!romDetail) return;
+
+    if (!platform_is_native_3ds(currentPlatformSlug)) {
+        log_info("Saves for this platform are files on the SD card; use Sync instead");
+        return;
+    }
+
+    u64 titleId = titlemap_get_title(romDetail->id);
+    if (titleId == 0) {
+        log_error("Link this ROM to an installed title first (X)");
+        return;
+    }
+
+    const InstalledTitle *title = titles_find(titleId);
+    if (!title) {
+        log_error("Linked title %016llX is not installed", (unsigned long long)titleId);
+        return;
+    }
+
+    sound_play_click();
+    show_loading("Reading save archive...");
+
+    char zipPath[CONFIG_MAX_PATH_LEN + 64];
+    snprintf(zipPath, sizeof(zipPath), "%s/save-%016llX.zip", CONFIG_DIR, (unsigned long long)titleId);
+
+    SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, zipPath);
+    if (exported != SAVEARCHIVE_OK) {
+        log_error("%s", savearchive_result_text(exported));
+        return;
+    }
+
+    show_loading("Uploading save...");
+
+    // slot is always sent: a null slot makes the server treat every save as an
+    // unconditional upload and never resolve conflicts.
+    char url[1024];
+    snprintf(url, sizeof(url), "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s&overwrite=true",
+             config.serverUrl, romDetail->id, authToken.deviceId);
+
+    HttpResponse response;
+    bool sent = http_post_file(url, "saveFile", zipPath, &response);
+
+    // The zip is a staging artefact, not something to leave on the card.
+    remove(zipPath);
+
+    if (!sent) {
+        log_error("Upload failed at the transport");
+        return;
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+        log_info("Uploaded save for '%s'", title->name);
+        romstatus_invalidate();
+        if (platforms && selectedPlatformIndex < platformCount) {
+            romstatus_load_platform(platforms[selectedPlatformIndex].id);
+        }
+        roms_refresh_status();
+    } else {
+        log_error("Server rejected the save: HTTP %ld", response.statusCode);
+    }
+
+    http_response_free(&response);
+}
+
 static void handle_state_rom_detail(u32 kDown) {
     RomDetailResult result = romdetail_update(kDown);
 
@@ -879,6 +951,11 @@ static void handle_state_rom_detail(u32 kDown) {
         // user picks one.
         installed_init_picker(romDetail->name, romstatus_suggest_title(romDetail->name, romDetail->fsName));
         currentState = STATE_INSTALLED;
+        return;
+    }
+
+    if (result == ROMDETAIL_UPLOAD_SAVE) {
+        upload_native_save();
         return;
     }
 
