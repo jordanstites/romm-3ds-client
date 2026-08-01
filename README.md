@@ -70,30 +70,6 @@ Saves are stored as a zip of the archive's contents with entries relative to the
 save root (`main`, not `<titleId>/main`), which is what lets the same file be
 used by an emulator.
 
-### Using a 3DS save in an emulator
-
-The zip's layout is the reason this works without repacking. Azahar and Citra
-keep 3DS saves at:
-
-```
-<user dir>/sdmc/Nintendo 3DS/<ID0>/<ID1>/title/<titleId high>/<titleId low>/data/00000001/
-```
-
-On macOS the user directory is `~/Library/Application Support/Azahar/`, and both
-ID directories are 32 zeros for the emulated SD card. So Pokemon Y
-(`0004000000055E00`) lands at `.../title/00040000/00055e00/data/00000001/main`.
-
-Extract the zip's contents straight into that folder. The emulator has to have
-run the game at least once for the directory to exist -- if it does not,
-right-click the game in Azahar's list and use "Open Save Data Location". Going
-the other way, zip the contents of that folder with entries at the root (`main`,
-not a wrapper directory) and upload it to RomM.
-
-Restoring performs two steps that fail silently if skipped:
-`ARCHIVE_ACTION_COMMIT_SAVE_DATA`, without which every write is discarded, and
-clearing the save's secure value, without which the game — Pokémon titles
-especially — reports the save as corrupted. Backups are written to
-`sdmc:/3ds/romm-3ds-client/backup-<titleId>.zip` and kept.
 
 ## Building
 
