@@ -23,8 +23,9 @@ Substantial changes from upstream are planned or in progress:
 ## Third-party references
 
 3DS save-archive handling is informed by reading
-[Checkpoint](https://github.com/BernardoGiordano/Checkpoint) and
-[3hs](https://github.com/hShop-3ds/3hs), both **GPL-3.0**, and by
+[Checkpoint](https://github.com/BernardoGiordano/Checkpoint) and by 3hs (the
+hShop client, distributed with its source; see <https://hshop.mariko.you>), both
+**GPL-3.0**, and by
 [3dbrew](https://www.3dbrew.org/) as the primary API reference. This project is
 MIT, so those sources were read to learn which system calls matter and in what
 order — no code was copied from either. See

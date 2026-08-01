@@ -9,12 +9,17 @@ about the **system API**, not code to copy.
 canonical implementations, and both are **GPL-3.0** — Checkpoint additionally
 invokes GPLv3 terms 7.b and 7.c, which require preserving author attributions.
 
-**This project is MIT.** Copying any code from either would force the entire
-project to GPLv3. So: read them to learn *which* system calls matter and *in
-what order*, cross-check against [3dbrew](https://www.3dbrew.org/) as the
-primary reference, and write original code. The call sequences below are public
-system API, documented on 3dbrew; the value of reading Checkpoint is knowing
-which of them are load-bearing.
+**This project is MIT**, deliberately. MIT is GPL-compatible, so relicensing to
+GPLv3 later is always available if we ever want to lift something substantial
+(the GBA Virtual Console path, or cartridge SPI reads for physical carts). The
+reverse is not — so staying MIT preserves the option, and going GPL would
+foreclose it.
+
+In practice very little would be worth copying: the sequences below are public
+system API documented on 3dbrew, roughly ten lines each. What reading Checkpoint
+actually buys is knowing *which* calls are load-bearing and in what order, which
+is fact rather than copyrightable expression. So: read for understanding,
+cross-check against 3dbrew, write original code.
 
 ## Enumerating installed titles
 
