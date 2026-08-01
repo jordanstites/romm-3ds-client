@@ -20,7 +20,8 @@ typedef enum {
     BOTTOM_MODE_SEARCH_FORM,
     BOTTOM_MODE_FOLDER_BROWSER,
     BOTTOM_MODE_ABOUT,
-    BOTTOM_MODE_PAIRING
+    BOTTOM_MODE_PAIRING,
+    BOTTOM_MODE_SYNC
 } BottomMode;
 
 // Bottom screen action results
@@ -41,7 +42,8 @@ typedef enum {
     BOTTOM_ACTION_CANCEL_CLEAR,
     BOTTOM_ACTION_SELECT_FOLDER,
     BOTTOM_ACTION_CREATE_FOLDER,
-    BOTTOM_ACTION_OPEN_ABOUT
+    BOTTOM_ACTION_OPEN_ABOUT,
+    BOTTOM_ACTION_OPEN_SYNC
 } BottomAction;
 
 // Initialize bottom screen module

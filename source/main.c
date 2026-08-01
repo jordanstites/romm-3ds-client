@@ -15,6 +15,7 @@
 #include "api.h"
 #include "auth.h"
 #include "compat.h"
+#include "library.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -29,6 +30,7 @@
 #include "screens/search.h"
 #include "screens/about.h"
 #include "screens/pairing.h"
+#include "screens/sync.h"
 #include "debuglog.h"
 #include "zip.h"
 
@@ -44,7 +46,8 @@ typedef enum {
     STATE_SEARCH_FORM,
     STATE_SEARCH_RESULTS,
     STATE_ABOUT,
-    STATE_PAIRING
+    STATE_PAIRING,
+    STATE_SYNC
 } AppState;
 
 static AppState currentState = STATE_LOADING;
@@ -358,7 +361,11 @@ static void download_focused_rom(const Rom *rom, const char *slug, const char *f
     log_info("Downloading to: %s", destPath);
     if (api_download_rom(rom->id, rom->fsName, destPath, progress_callback)) {
         log_info("Download complete!");
-        if (!extract_if_zip(destPath)) {
+        if (extract_if_zip(destPath)) {
+            // Record the mapping so save sync can tie files on this card back
+            // to a rom_id without paging the whole library over the API.
+            library_record(rom->id, slug, rom->fsName);
+        } else {
             remove(destPath);
         }
     } else {
@@ -382,6 +389,7 @@ static bool download_queue_entry(QueueEntry *entry) {
         remove(destPath);
         return false;
     }
+    library_record(entry->romId, entry->platformSlug, entry->fsName);
     return true;
 }
 
@@ -509,6 +517,20 @@ static void handle_bottom_action(BottomAction action) {
         if (!hasTerm) {
             search_open_keyboard();
         }
+        return;
+    }
+    if (action == BOTTOM_ACTION_OPEN_SYNC && currentState != STATE_SYNC) {
+        if (!auth_has_token(&authToken)) {
+            log_error("Pair with RomM before syncing saves");
+            return;
+        }
+        sound_play_click();
+        nav_push(currentState);
+        bottom_set_mode(BOTTOM_MODE_SYNC);
+        currentState = STATE_SYNC;
+        // Scanning and hashing block, so show something first.
+        show_loading("Scanning saves...");
+        sync_screen_init(&config, &authToken);
         return;
     }
     if (action == BOTTOM_ACTION_OPEN_ABOUT && currentState != STATE_ABOUT) {
@@ -868,6 +890,14 @@ static void handle_state_search_results(u32 kDown) {
     }
 }
 
+static void handle_state_sync(u32 kDown) {
+    if (sync_screen_update(kDown) == SYNC_SCREEN_DONE) {
+        sound_play_pop();
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        currentState = nav_pop();
+    }
+}
+
 static void handle_state_pairing(u32 kDown) {
     PairingResult result = pairing_update(kDown);
     if (result == PAIRING_SUCCESS) {
@@ -934,6 +964,9 @@ static void draw_top_screen(void) {
         break;
     case STATE_PAIRING:
         pairing_draw();
+        break;
+    case STATE_SYNC:
+        sync_screen_draw();
         break;
     }
 }
@@ -1034,6 +1067,9 @@ int main(int argc, char *argv[]) {
             break;
         case STATE_PAIRING:
             handle_state_pairing(kDown);
+            break;
+        case STATE_SYNC:
+            handle_state_sync(kDown);
             break;
         }
 

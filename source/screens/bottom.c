@@ -26,6 +26,8 @@
 #define QUEUE_ICON_Y (ICON_PADDING)
 #define SEARCH_ICON_X (SCREEN_BOTTOM_WIDTH - (ICON_SIZE + ICON_PADDING) * 5)
 #define SEARCH_ICON_Y (ICON_PADDING)
+#define SYNC_ICON_X (SCREEN_BOTTOM_WIDTH - (ICON_SIZE + ICON_PADDING) * 6)
+#define SYNC_ICON_Y (ICON_PADDING)
 // Left side: home icon
 #define HOME_ICON_X (ICON_PADDING)
 #define HOME_ICON_Y (ICON_PADDING)
@@ -252,6 +254,11 @@ BottomAction bottom_update(void) {
             ui_touch_in_rect(touch.px, touch.py, SEARCH_ICON_X, SEARCH_ICON_Y, ICON_SIZE, ICON_SIZE)) {
             return BOTTOM_ACTION_OPEN_SEARCH;
         }
+        // Sync icon
+        if (currentMode != BOTTOM_MODE_SYNC &&
+            ui_touch_in_rect(touch.px, touch.py, SYNC_ICON_X, SYNC_ICON_Y, ICON_SIZE, ICON_SIZE)) {
+            return BOTTOM_ACTION_OPEN_SYNC;
+        }
         // Home icon
         if (ui_touch_in_rect(touch.px, touch.py, HOME_ICON_X, HOME_ICON_Y, ICON_SIZE, ICON_SIZE)) {
             return BOTTOM_ACTION_GO_HOME;
@@ -270,6 +277,7 @@ static void draw_toolbar(void) {
     ui_draw_rect(0, 0, SCREEN_BOTTOM_WIDTH, TOOLBAR_HEIGHT, UI_COLOR_HEADER);
     ui_draw_icon_home(HOME_ICON_X, HOME_ICON_Y, ICON_SIZE, UI_COLOR_TEXT);
     ui_draw_icon_search(SEARCH_ICON_X, SEARCH_ICON_Y, ICON_SIZE, UI_COLOR_TEXT);
+    ui_draw_icon_sync(SYNC_ICON_X, SYNC_ICON_Y, ICON_SIZE, UI_COLOR_TEXT);
     ui_draw_icon_queue(QUEUE_ICON_X, QUEUE_ICON_Y, ICON_SIZE, UI_COLOR_TEXT);
     ui_draw_icon_gear(GEAR_ICON_X, GEAR_ICON_Y, ICON_SIZE, UI_COLOR_TEXT);
     ui_draw_icon_bug(BUG_ICON_X, BUG_ICON_Y, ICON_SIZE, UI_COLOR_TEXT);
@@ -373,6 +381,9 @@ void bottom_draw(void) {
         ui_draw_button(BUTTON_X, CANCEL_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT, "Create New Folder", createFolderPressed,
                        UI_BUTTON_SECONDARY);
     } else if (currentMode == BOTTOM_MODE_ABOUT) {
+        ui_draw_rect(0, 0, SCREEN_BOTTOM_WIDTH, SCREEN_BOTTOM_HEIGHT, UI_COLOR_BG);
+        draw_toolbar();
+    } else if (currentMode == BOTTOM_MODE_SYNC) {
         ui_draw_rect(0, 0, SCREEN_BOTTOM_WIDTH, SCREEN_BOTTOM_HEIGHT, UI_COLOR_BG);
         draw_toolbar();
     } else if (currentMode == BOTTOM_MODE_PAIRING) {

@@ -324,6 +324,28 @@ void ui_draw_icon_queue(float x, float y, float size, u32 color) {
     C2D_DrawRectSolid(ax, ay, 0, 3 * scale, 2 * scale, color);
 }
 
+// Two stacked arrows pointing opposite ways -- the usual "sync" glyph, drawn
+// with rectangles to match the other icons (no textures, no ROMFS).
+void ui_draw_icon_sync(float x, float y, float size, u32 color) {
+    float scale = size / 20.0f;
+    float barW = 11 * scale;
+    float barH = 2 * scale;
+    float head = 3 * scale;
+
+    // Top bar, arrowhead on the right
+    float tx = x + 4 * scale;
+    float ty = y + 6 * scale;
+    C2D_DrawRectSolid(tx, ty, 0, barW, barH, color);
+    C2D_DrawTriangle(tx + barW, ty - head / 2, color, tx + barW, ty + barH + head / 2, color,
+                     tx + barW + head, ty + barH / 2, color, 0);
+
+    // Bottom bar, arrowhead on the left
+    float bx = x + 5 * scale;
+    float by = y + 12 * scale;
+    C2D_DrawRectSolid(bx, by, 0, barW, barH, color);
+    C2D_DrawTriangle(bx, by - head / 2, color, bx, by + barH + head / 2, color, bx - head, by + barH / 2, color, 0);
+}
+
 void ui_draw_icon_search(float x, float y, float size, u32 color) {
     float cx = x + size / 2;
     float cy = y + size / 2;
