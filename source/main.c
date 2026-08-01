@@ -16,6 +16,7 @@
 #include "auth.h"
 #include "compat.h"
 #include "library.h"
+#include "titles.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -1078,6 +1079,15 @@ int main(int argc, char *argv[]) {
     log_subscribe(debuglog_subscriber);
     log_info("%s v%s", APP_TITLE, APP_VERSION);
 
+    // Installed 3DS games. Needed for native save sync, and independent of
+    // anything downloaded through this app.
+    if (titles_scan() > 0) {
+        for (int i = 0; i < titles_count(); i++) {
+            const InstalledTitle *t = titles_get(i);
+            log_debug("  %016llX  %-12s  %s", (unsigned long long)t->titleId, t->productCode, t->name);
+        }
+    }
+
     while (aptMainLoop()) {
         hidScanInput();
         u32 kDown = hidKeysDown();
@@ -1142,6 +1152,7 @@ int main(int argc, char *argv[]) {
     sound_exit();
     ui_exit();
     api_exit();
+    titles_exit();
 
     romfsExit();
     C2D_Fini();
