@@ -206,11 +206,24 @@ void roms_draw(void) {
                 bx -= 6;
             }
 
-            // Presence on the console.
-            const char *presence = status.onDevice ? "DL" : (status.installed ? "IN" : NULL);
+            // Presence. Installed takes visual priority over a staged file --
+            // for a 3DS title the installed copy is the one you play, and a
+            // leftover .3ds in the folder is only there to be converted.
+            const char *presence = NULL;
+            u32 presenceColour = UI_COLOR_INFO;
+            if (status.installed && status.onDevice) {
+                presence = "IN+";  // installed, and a staged file is still around
+                presenceColour = UI_COLOR_SUCCESS;
+            } else if (status.installed) {
+                presence = "IN";
+                presenceColour = UI_COLOR_SUCCESS;
+            } else if (status.onDevice) {
+                presence = "DL";
+            }
+
             if (presence) {
                 bx -= ui_get_text_width_scaled(presence, 0.45f);
-                ui_draw_text_scaled(bx, y + 4, presence, UI_COLOR_INFO, 0.45f);
+                ui_draw_text_scaled(bx, y + 4, presence, presenceColour, 0.45f);
             }
         } else {
             bool selected = (i == nav.selectedIndex);

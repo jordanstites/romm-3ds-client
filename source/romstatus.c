@@ -179,8 +179,10 @@ RomStatus romstatus_for(const Config *config, int romId, const char *platformSlu
     }
 
     // Only meaningful for native 3DS titles; other platforms are never
-    // "installed" in the AM sense.
-    if (!status.onDevice && (strcmp(platformSlug, "3ds") == 0 || strcmp(platformSlug, "new-nintendo-3ds") == 0)) {
+    // "installed" in the AM sense. Checked independently of onDevice: a title
+    // can be installed while a staged .3ds still sits in the folder, and that
+    // combination is worth surfacing since the staged copy is then dead weight.
+    if (strcmp(platformSlug, "3ds") == 0 || strcmp(platformSlug, "new-nintendo-3ds") == 0) {
         status.installed = looks_installed(romName, fsName);
     }
 
