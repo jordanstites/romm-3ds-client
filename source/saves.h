@@ -22,6 +22,7 @@
 #define SAVES_MAX_PATH 512
 #define SAVES_MAX_NAME 256
 #define SAVES_HASH_LEN 33 // 32 hex chars + NUL
+#define SAVES_MAX_CANDIDATES 2
 
 typedef struct {
     int romId;
@@ -43,8 +44,17 @@ int saves_scan(const Config *config, LocalSave *out, int maxSaves);
 // cannot be read.
 bool saves_hash_file(const char *path, char out[SAVES_HASH_LEN]);
 
-// Where a downloaded save should be written for a given platform and ROM file
-// name. Mirrors the layout rules in saves_scan.
+// Every place a save for this ROM could legitimately live, most likely first.
+// Emulator configuration decides which is real, so both are probed.
+int saves_candidate_paths(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
+                          char out[][SAVES_MAX_PATH], int maxPaths);
+
+// First candidate that actually exists on the card.
+bool saves_find_existing(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
+                         char *out, size_t outLen);
+
+// Where to write a save for this ROM: the existing file if there is one,
+// otherwise the platform's default layout.
 bool saves_build_path(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
                       char *out, size_t outLen);
 

@@ -83,10 +83,12 @@ static bool platform_rom_dir(const Config *config, const char *platformSlug, cha
     return true;
 }
 
-bool saves_build_path(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
-                      char *out, size_t outLen) {
+int saves_candidate_paths(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
+                          char out[][SAVES_MAX_PATH], int maxPaths) {
+    if (maxPaths < 1) return 0;
+
     char romDir[SAVES_MAX_PATH];
-    if (!platform_rom_dir(config, platformSlug, romDir, sizeof(romDir))) return false;
+    if (!platform_rom_dir(config, platformSlug, romDir, sizeof(romDir))) return 0;
 
     char stem[SAVES_MAX_NAME];
     strip_extension(romFsName, stem, sizeof(stem));
@@ -100,11 +102,53 @@ bool saves_build_path(const Config *config, const char *platformSlug, const char
         snprintf(suffix, sizeof(suffix), "%s", slot);
     }
 
-    if (platform_uses_saves_subfolder(platformSlug)) {
-        snprintf(out, outLen, "%s/saves/%s.%s%s", romDir, stem, ext, suffix);
-    } else {
-        snprintf(out, outLen, "%s/%s.%s%s", romDir, stem, ext, suffix);
+    // Both layouts are probed rather than assumed. TWiLight Menu++ defaults DS
+    // saves to a saves/ subfolder, but its TSaveLoc setting can move them
+    // beside the ROM, and standalone forwarders built by the usual generators
+    // write beside the ROM too. Guessing wrong means reporting no saves at all.
+    // Bounded explicitly: romDir is itself a full-length path buffer, so the
+    // compiler cannot otherwise prove the join fits.
+    const char *beside = "%.320s/%.150s.%.8s%.4s";
+    const char *subfolder = "%.320s/saves/%.150s.%.8s%.4s";
+
+    int count = 0;
+    const char *first = platform_uses_saves_subfolder(platformSlug) ? subfolder : beside;
+    const char *second = platform_uses_saves_subfolder(platformSlug) ? beside : subfolder;
+
+    snprintf(out[count++], SAVES_MAX_PATH, first, romDir, stem, ext, suffix);
+    if (count < maxPaths) {
+        snprintf(out[count++], SAVES_MAX_PATH, second, romDir, stem, ext, suffix);
     }
+    return count;
+}
+
+bool saves_find_existing(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
+                         char *out, size_t outLen) {
+    char candidates[SAVES_MAX_CANDIDATES][SAVES_MAX_PATH];
+    int count = saves_candidate_paths(config, platformSlug, romFsName, slot, candidates, SAVES_MAX_CANDIDATES);
+
+    for (int i = 0; i < count; i++) {
+        struct stat st;
+        if (stat(candidates[i], &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+            snprintf(out, outLen, "%s", candidates[i]);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool saves_build_path(const Config *config, const char *platformSlug, const char *romFsName, const char *slot,
+                      char *out, size_t outLen) {
+    // An existing file wins: writing a downloaded save to the platform default
+    // while the emulator reads from the other location would silently do
+    // nothing.
+    if (saves_find_existing(config, platformSlug, romFsName, slot, out, outLen)) return true;
+
+    char candidates[SAVES_MAX_CANDIDATES][SAVES_MAX_PATH];
+    int count = saves_candidate_paths(config, platformSlug, romFsName, slot, candidates, SAVES_MAX_CANDIDATES);
+    if (count == 0) return false;
+
+    snprintf(out, outLen, "%s", candidates[0]);
     return true;
 }
 
@@ -126,14 +170,12 @@ int saves_scan(const Config *config, LocalSave *out, int maxSaves) {
             snprintf(slot, sizeof(slot), "%d", slotNum);
 
             char path[SAVES_MAX_PATH];
-            if (!saves_build_path(config, entry->platformSlug, entry->fsName, slot, path, sizeof(path))) {
-                break; // no folder mapping for this platform
+            if (!saves_find_existing(config, entry->platformSlug, entry->fsName, slot, path, sizeof(path))) {
+                continue;
             }
 
             struct stat st;
-            if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size == 0) {
-                continue;
-            }
+            if (stat(path, &st) != 0) continue;
 
             LocalSave *save = &out[found];
             memset(save, 0, sizeof(LocalSave));

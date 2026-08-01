@@ -98,10 +98,7 @@ static int count_local_saves(const Config *config, const char *platformSlug, con
         snprintf(slot, sizeof(slot), "%d", slotNum);
 
         char path[SAVES_MAX_PATH];
-        if (!saves_build_path(config, platformSlug, fsName, slot, path, sizeof(path))) break;
-
-        struct stat st;
-        if (stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) found++;
+        if (saves_find_existing(config, platformSlug, fsName, slot, path, sizeof(path))) found++;
     }
     return found;
 }
