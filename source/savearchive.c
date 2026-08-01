@@ -15,6 +15,12 @@
 #define COPY_CHUNK 8192
 #define MAX_ENTRIES 256
 
+// minizip's zipOpen3 allocates a ~64KB zip64_internal on the stack, and unzip
+// is comparable. The main thread's stack is far smaller than that, so calling
+// either from it faults on the first write past the end. Both run on a
+// dedicated thread with room to spare instead.
+#define ZIP_THREAD_STACK (192 * 1024)
+
 const char *savearchive_result_text(SaveArchiveResult result) {
     switch (result) {
     case SAVEARCHIVE_OK:
@@ -187,7 +193,7 @@ static bool add_directory(WalkState *state, int depth) {
     return ok;
 }
 
-SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const char *destPath) {
+static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const char *destPath) {
     FS_Archive archive;
     Result res = open_save_archive(titleId, mediaType, &archive);
     if (R_FAILED(res)) {
@@ -260,7 +266,7 @@ static void md5_hex(const unsigned char *data, size_t len, char out[SAVES_HASH_L
     out[32] = '\0';
 }
 
-bool savearchive_zip_content_hash(const char *zipPath, char out[SAVES_HASH_LEN]) {
+static bool zip_content_hash_impl(const char *zipPath, char out[SAVES_HASH_LEN]) {
     out[0] = '\0';
 
     unzFile uf = unzOpen(zipPath);
@@ -350,4 +356,63 @@ bool savearchive_zip_content_hash(const char *zipPath, char out[SAVES_HASH_LEN])
     }
     out[32] = '\0';
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Threaded entry points
+//
+// Everything above touches minizip, which needs far more stack than the main
+// thread has. Running it on a dedicated thread is cheaper and less fragile than
+// replacing the zip implementation, and joins immediately so callers keep their
+// straight-line control flow.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    u64 titleId;
+    FS_MediaType mediaType;
+    const char *path;
+    char *hashOut;
+    SaveArchiveResult result;
+    bool ok;
+} ZipJob;
+
+static void export_entry(void *arg) {
+    ZipJob *job = (ZipJob *)arg;
+    job->result = export_impl(job->titleId, job->mediaType, job->path);
+}
+
+static void hash_entry(void *arg) {
+    ZipJob *job = (ZipJob *)arg;
+    job->ok = zip_content_hash_impl(job->path, job->hashOut);
+}
+
+// Runs `entry` on a thread with a large stack and waits for it.
+static bool run_with_big_stack(ThreadFunc entry, ZipJob *job) {
+    s32 priority = 0x30;
+    svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+
+    // Core -2 is the default processor from the exheader; the application core
+    // is always available without an APT time limit.
+    Thread thread = threadCreate(entry, job, ZIP_THREAD_STACK, priority, -2, false);
+    if (!thread) {
+        log_error("Could not start the archive thread");
+        return false;
+    }
+
+    threadJoin(thread, U64_MAX);
+    threadFree(thread);
+    return true;
+}
+
+SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const char *destPath) {
+    ZipJob job = {.titleId = titleId, .mediaType = mediaType, .path = destPath, .result = SAVEARCHIVE_IO_ERROR};
+    if (!run_with_big_stack(export_entry, &job)) return SAVEARCHIVE_IO_ERROR;
+    return job.result;
+}
+
+bool savearchive_zip_content_hash(const char *zipPath, char out[SAVES_HASH_LEN]) {
+    out[0] = '\0';
+    ZipJob job = {.path = zipPath, .hashOut = out, .ok = false};
+    if (!run_with_big_stack(hash_entry, &job)) return false;
+    return job.ok;
 }
