@@ -34,6 +34,7 @@ static int cursor = 0;          // index into plan.operations while running
 static int conflictChoice = 0;  // 0 = keep local, 1 = keep server, 2 = skip
 static int completed = 0;
 static int failed = 0;
+static int skipped = 0;
 static char failureDetail[160] = "";
 
 static void begin(void) {
@@ -41,6 +42,7 @@ static void begin(void) {
     cursor = 0;
     completed = 0;
     failed = 0;
+    skipped = 0;
     failureDetail[0] = '\0';
 
     localSaveCount = saves_scan(currentConfig, localSaves, SAVES_MAX);
@@ -79,7 +81,11 @@ static void run_next(void) {
         }
 
         if (savesync_execute(currentConfig, currentToken, op)) {
-            if (op->done) completed++;
+            if (op->done) {
+                completed++;
+            } else if (op->skipped) {
+                skipped++;
+            }
         } else {
             failed++;
         }
@@ -224,9 +230,24 @@ void sync_screen_draw(void) {
     }
 
     case STAGE_FINISHED:
-        snprintf(line, sizeof(line), "%d synced, %d failed", completed, failed);
-        draw_centered(y + UI_LINE_HEIGHT * 2, "Sync complete", UI_COLOR_TEXT);
-        draw_centered(y + UI_LINE_HEIGHT * 3, line, UI_COLOR_TEXT_DIM);
+        draw_centered(y + UI_LINE_HEIGHT, "Sync complete", UI_COLOR_TEXT);
+
+        snprintf(line, sizeof(line), "%d synced%s", completed, failed > 0 ? "," : "");
+        draw_centered(y + UI_LINE_HEIGHT * 2, line, UI_COLOR_TEXT_DIM);
+
+        if (failed > 0) {
+            snprintf(line, sizeof(line), "%d failed - see the log", failed);
+            draw_centered(y + UI_LINE_HEIGHT * 3, line, UI_COLOR_TEXT);
+        }
+
+        // Not a failure: the server offers every save on the account, including
+        // ones for games that live on other devices.
+        if (skipped > 0) {
+            snprintf(line, sizeof(line), "%d save%s for games not on this console", skipped, skipped == 1 ? "" : "s");
+            ui_draw_wrapped_text(UI_PADDING, y + UI_LINE_HEIGHT * (failed > 0 ? 4 : 3),
+                                 SCREEN_TOP_WIDTH - UI_PADDING * 2, line, UI_COLOR_TEXT_DIM, 2, 0);
+        }
+
         draw_centered(SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT * 2 - UI_PADDING, "A: Done", UI_COLOR_TEXT_DIM);
         break;
 

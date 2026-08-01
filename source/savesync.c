@@ -265,11 +265,15 @@ static bool download_save(const Config *config, const AuthToken *token, SyncOper
     } else {
         const LibraryEntry *entry = library_find(op->romId);
         if (!entry) {
-            log_error("Cannot place a save for rom %d: it is not on this card", op->romId);
-            return false;
+            // The server offers every save the account owns, including ones
+            // written by other devices for games this console does not have.
+            // There is nowhere sensible to put those, and it is not an error.
+            log_info("Skipping save for rom %d: that game is not on this card", op->romId);
+            op->skipped = true;
+            return true;
         }
         if (!saves_build_path(config, entry->platformSlug, entry->fsName, op->slot, destPath, sizeof(destPath))) {
-            log_error("No folder configured for platform '%s'", entry->platformSlug);
+            log_error("No folder is configured for platform '%s'; set one to sync its saves", entry->platformSlug);
             return false;
         }
     }
@@ -335,6 +339,12 @@ bool savesync_execute(const Config *config, const AuthToken *token, SyncOperatio
         break;
     }
 
+    if (op->skipped) {
+        op->done = false;
+        op->failed = false;
+        return true;
+    }
+
     op->done = ok;
     op->failed = !ok;
     return ok;
@@ -351,6 +361,8 @@ void savesync_complete(const Config *config, const SyncPlan *plan) {
         } else if (plan->operations[i].done) {
             completed++;
         }
+        // Skips are deliberately reported as neither, so the server's session
+        // record matches what actually happened.
     }
 
     char body[128];

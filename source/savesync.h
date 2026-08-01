@@ -51,6 +51,9 @@ typedef struct {
     SyncResolution resolution; // only meaningful for SYNC_OP_CONFLICT
     bool done;
     bool failed;
+    // Nothing went wrong, there was just nothing to do here -- most often a
+    // save for a game that lives on another device but not on this card.
+    bool skipped;
 } SyncOperation;
 
 typedef struct {
