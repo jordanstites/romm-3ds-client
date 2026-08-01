@@ -20,6 +20,20 @@ Substantial changes from upstream are planned or in progress:
 - Bidirectional save sync via RomM's device sync protocol (`/api/sync/negotiate`)
 - Transfers moved off the UI frame loop
 
+## Third-party references
+
+3DS save-archive handling is informed by reading
+[Checkpoint](https://github.com/BernardoGiordano/Checkpoint) and
+[3hs](https://github.com/hShop-3ds/3hs), both **GPL-3.0**, and by
+[3dbrew](https://www.3dbrew.org/) as the primary API reference. This project is
+MIT, so those sources were read to learn which system calls matter and in what
+order — no code was copied from either. See
+[reference/3ds-save-archives.md](reference/3ds-save-archives.md).
+
+Vendored code: [cJSON](https://github.com/DaveGamble/cJSON) and
+[nayuki/QR-Code-generator](https://github.com/nayuki/QR-Code-generator), both
+MIT.
+
 ## Building
 
 Requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the 3DS toolchain:
