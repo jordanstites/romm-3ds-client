@@ -18,6 +18,7 @@
 #include "library.h"
 #include "titles.h"
 #include "romstatus.h"
+#include "titlemap.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -852,8 +853,33 @@ static void handle_state_roms(u32 kDown) {
     }
 }
 
+// True for the platforms whose saves live in a 3DS save archive rather than as
+// a file on the SD card.
+static bool platform_is_native_3ds(const char *slug) {
+    return slug && (strcmp(slug, "3ds") == 0 || strcmp(slug, "new-nintendo-3ds") == 0);
+}
+
 static void handle_state_rom_detail(u32 kDown) {
     RomDetailResult result = romdetail_update(kDown);
+
+    if (result == ROMDETAIL_LINK_TITLE) {
+        if (!platform_is_native_3ds(currentPlatformSlug)) {
+            // Everything else keeps its saves as files next to the ROM, so
+            // there is no title to link.
+            log_info("Linking only applies to native 3DS titles");
+            return;
+        }
+        if (!romDetail) return;
+
+        sound_play_click();
+        nav_push(STATE_ROM_DETAIL);
+        // Suggest the name-matched title, but the link is only made once the
+        // user picks one.
+        installed_init_picker(romDetail->name, romstatus_suggest_title(romDetail->name, romDetail->fsName));
+        currentState = STATE_INSTALLED;
+        return;
+    }
+
     if (result == ROMDETAIL_BACK) {
         sound_play_pop();
         AppState returnState = nav_pop();
@@ -1003,7 +1029,20 @@ static void handle_state_search_results(u32 kDown) {
 }
 
 static void handle_state_installed(u32 kDown) {
-    if (installed_update(kDown) == INSTALLED_BACK) {
+    InstalledResult result = installed_update(kDown);
+
+    if (result == INSTALLED_PICKED && romDetail) {
+        u64 titleId = installed_get_picked();
+        if (titleId != 0 && titlemap_set(romDetail->id, titleId)) {
+            sound_play_click();
+            romstatus_invalidate();
+        }
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        currentState = nav_pop();
+        return;
+    }
+
+    if (result == INSTALLED_BACK) {
         sound_play_pop();
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
         currentState = nav_pop();

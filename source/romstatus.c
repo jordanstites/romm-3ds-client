@@ -8,6 +8,7 @@
 #include "http.h"
 #include "log.h"
 #include "saves.h"
+#include "titlemap.h"
 #include "titles.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -146,8 +147,10 @@ static bool titles_look_equivalent(const char *a, const char *b) {
     return false;
 }
 
-static bool looks_installed(const char *romName, const char *fsName) {
-    if (titles_count() == 0) return false;
+// The installed title this ROM most likely corresponds to, or NULL. Drives the
+// badge and preselects the picker; never used to complete a link on its own.
+const char *romstatus_suggest_title(const char *romName, const char *fsName) {
+    if (titles_count() == 0) return NULL;
 
     char candidates[2][160];
     normalize_title(romName ? romName : "", candidates[0], sizeof(candidates[0]));
@@ -155,12 +158,17 @@ static bool looks_installed(const char *romName, const char *fsName) {
 
     char installed[160];
     for (int i = 0; i < titles_count(); i++) {
-        normalize_title(titles_get(i)->name, installed, sizeof(installed));
+        const InstalledTitle *t = titles_get(i);
+        normalize_title(t->name, installed, sizeof(installed));
         for (int c = 0; c < 2; c++) {
-            if (titles_look_equivalent(installed, candidates[c])) return true;
+            if (titles_look_equivalent(installed, candidates[c])) return t->name;
         }
     }
-    return false;
+    return NULL;
+}
+
+static bool looks_installed(const char *romName, const char *fsName) {
+    return romstatus_suggest_title(romName, fsName) != NULL;
 }
 
 RomStatus romstatus_for(const Config *config, int romId, const char *platformSlug, const char *romName,
@@ -183,7 +191,15 @@ RomStatus romstatus_for(const Config *config, int romId, const char *platformSlu
     // can be installed while a staged .3ds still sits in the folder, and that
     // combination is worth surfacing since the staged copy is then dead weight.
     if (strcmp(platformSlug, "3ds") == 0 || strcmp(platformSlug, "new-nintendo-3ds") == 0) {
-        status.installed = looks_installed(romName, fsName);
+        // A confirmed link beats a name guess: the user has already told us
+        // which title this is, so trust that over the heuristic.
+        u64 linked = titlemap_get_title(romId);
+        if (linked != 0) {
+            status.linked = true;
+            status.installed = (titles_find(linked) != NULL);
+        } else {
+            status.installed = looks_installed(romName, fsName);
+        }
     }
 
     return status;

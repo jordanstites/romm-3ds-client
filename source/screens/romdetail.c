@@ -26,6 +26,12 @@ RomDetailResult romdetail_update(u32 kDown) {
         return ROMDETAIL_BACK;
     }
 
+    // Link this ROM to an installed 3DS title, so its save archive can be
+    // synced. Only meaningful for native 3DS titles; main.c gates on platform.
+    if (kDown & KEY_X) {
+        return ROMDETAIL_LINK_TITLE;
+    }
+
     // Scroll description if needed
     if (kDown & KEY_DOWN) {
         scrollOffset++;
@@ -80,5 +86,6 @@ void romdetail_draw(void) {
     }
 
     // Help text
-    ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING, "B: Back", UI_COLOR_TEXT_DIM);
+    ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
+                 "B: Back \xC2\xB7 X: Link installed title", UI_COLOR_TEXT_DIM);
 }

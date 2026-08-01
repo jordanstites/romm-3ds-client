@@ -215,7 +215,9 @@ void roms_draw(void) {
                 presence = "IN+";  // installed, and a staged file is still around
                 presenceColour = UI_COLOR_SUCCESS;
             } else if (status.installed) {
-                presence = "IN";
+                // A confirmed link is shown differently from a name guess: only
+                // the confirmed one is safe to sync a save archive against.
+                presence = status.linked ? "IN*" : "IN";
                 presenceColour = UI_COLOR_SUCCESS;
             } else if (status.onDevice) {
                 presence = "DL";

@@ -19,6 +19,7 @@
 typedef struct {
     bool onDevice;      // ROM file present on the SD card
     bool installed;     // installed as a 3DS title (no ROM file involved)
+    bool linked;        // user has confirmed which installed title this is
     int serverSaves;    // saves RomM holds for this ROM
     int localSaves;     // save files found next to the ROM on this card
 } RomStatus;
@@ -35,5 +36,10 @@ void romstatus_invalidate(void);
 // local-save checks, which are filesystem lookups rather than API calls.
 RomStatus romstatus_for(const Config *config, int romId, const char *platformSlug, const char *romName,
                         const char *fsName);
+
+// Best-guess installed title name for a ROM, or NULL. Suggestion only -- it
+// preselects the picker and drives a badge, and never completes a link by
+// itself, because a wrong link would restore a save over the wrong game.
+const char *romstatus_suggest_title(const char *romName, const char *fsName);
 
 #endif // ROMSTATUS_H
