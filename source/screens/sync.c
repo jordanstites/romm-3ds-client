@@ -30,8 +30,8 @@ static SyncPlan plan;
 static LocalSave localSaves[SAVES_MAX];
 static int localSaveCount = 0;
 
-static int cursor = 0;          // index into plan.operations while running
-static int conflictChoice = 0;  // 0 = keep local, 1 = keep server, 2 = skip
+static int cursor = 0;         // index into plan.operations while running
+static int conflictChoice = 0; // 0 = keep local, 1 = keep server, 2 = skip
 static int completed = 0;
 static int failed = 0;
 static int skipped = 0;
@@ -185,7 +185,7 @@ void sync_screen_draw(void) {
 
         draw_centered(SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT * 2 - UI_PADDING,
                       plan.uploadCount + plan.downloadCount + plan.conflictCount > 0 ? "A: Start  -  B: Cancel"
-                                                                                    : "Nothing to do.  B: Back",
+                                                                                     : "Nothing to do.  B: Back",
                       UI_COLOR_TEXT_DIM);
         break;
 

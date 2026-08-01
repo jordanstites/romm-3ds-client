@@ -32,6 +32,6 @@ void about_draw(void) {
                          "interface, download queue and build system.",
                          UI_COLOR_TEXT, 5, 0);
 
-    ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
-                 "A: Installed titles \xC2\xB7 B: Back", UI_COLOR_TEXT_DIM);
+    ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING, "A: Installed titles \xC2\xB7 B: Back",
+                 UI_COLOR_TEXT_DIM);
 }

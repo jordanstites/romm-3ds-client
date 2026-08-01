@@ -15,8 +15,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # The base image ships 3ds-dev but not these portlibs, which the client
-      # links against for HTTPS. Without them the build fails at -lcurl.
+      # Belt and braces: the base image currently carries these, but the
+      # client will not link without them, so pin the dependency explicitly
+      # rather than relying on the image's contents staying the same.
       - name: Install 3DS portlibs
         run: dkp-pacman -S --noconfirm --needed 3ds-curl 3ds-mbedtls 3ds-zlib
 

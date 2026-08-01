@@ -18,12 +18,7 @@
 
 #define SYNC_MAX_OPERATIONS 256
 
-typedef enum {
-    SYNC_OP_NO_OP,
-    SYNC_OP_UPLOAD,
-    SYNC_OP_DOWNLOAD,
-    SYNC_OP_CONFLICT
-} SyncAction;
+typedef enum { SYNC_OP_NO_OP, SYNC_OP_UPLOAD, SYNC_OP_DOWNLOAD, SYNC_OP_CONFLICT } SyncAction;
 
 typedef enum {
     SYNC_RESOLVE_UNRESOLVED,

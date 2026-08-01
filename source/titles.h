@@ -25,8 +25,8 @@ typedef struct {
     u32 highId;
     u32 uniqueId; // (lowId >> 8) & 0xFFFFF, needed for the save secure value
     FS_MediaType mediaType;
-    char name[TITLES_MAX_NAME];                  // from SMDH, English short title
-    char productCode[TITLES_PRODUCT_CODE_LEN];   // e.g. CTR-P-ABCD
+    char name[TITLES_MAX_NAME];                // from SMDH, English short title
+    char productCode[TITLES_PRODUCT_CODE_LEN]; // e.g. CTR-P-ABCD
     // False when the SMDH could not be read and `name` is really the product
     // code. Those titles cannot be matched to a RomM entry by name.
     bool nameFromSmdh;

@@ -78,10 +78,13 @@ toolchain:
 
 ```sh
 sudo dkp-pacman -S 3ds-dev 3ds-curl 3ds-mbedtls 3ds-zlib
-brew install librsvg     # rsvg-convert, for the SVG -> icon step
+brew install librsvg clang-format   # rsvg-convert for the icon; clang-format is enforced by CI
 make                     # -> build/output/romm-3ds-client.3dsx
 make run ADDR=<3DS IP>   # deploy over Wi-Fi via 3dslink (press Y in Homebrew Launcher first)
 ```
+
+Run `make format` before committing — CI runs `make format-check` and fails on
+violations.
 
 `make cia` additionally needs `bannertool` and `makerom` in `PATH`; the `.3dsx`
 build does not, since it uses devkitPro's own `smdhtool`.

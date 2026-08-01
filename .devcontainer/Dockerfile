@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Portlibs the client links against for HTTPS. The base image ships 3ds-dev but
-# not these, so without them the build fails at link time on -lcurl.
+# Portlibs the client links against for HTTPS. The base image currently carries
+# these, but pin them explicitly so the container does not depend on that.
 RUN dkp-pacman -S --noconfirm --needed 3ds-curl 3ds-mbedtls 3ds-zlib
 
 # Install bannertool and makerom (3DS tools)

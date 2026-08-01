@@ -17,11 +17,11 @@
 #include <stdbool.h>
 
 typedef struct {
-    bool onDevice;      // ROM file present on the SD card
-    bool installed;     // installed as a 3DS title (no ROM file involved)
-    bool linked;        // user has confirmed which installed title this is
-    int serverSaves;    // saves RomM holds for this ROM
-    int localSaves;     // save files found next to the ROM on this card
+    bool onDevice;   // ROM file present on the SD card
+    bool installed;  // installed as a 3DS title (no ROM file involved)
+    bool linked;     // user has confirmed which installed title this is
+    int serverSaves; // saves RomM holds for this ROM
+    int localSaves;  // save files found next to the ROM on this card
 } RomStatus;
 
 // Fetch save counts for a platform. One request; safe to call on every entry

@@ -212,7 +212,7 @@ void roms_draw(void) {
             const char *presence = NULL;
             u32 presenceColour = UI_COLOR_INFO;
             if (status.installed && status.onDevice) {
-                presence = "IN+";  // installed, and a staged file is still around
+                presence = "IN+"; // installed, and a staged file is still around
                 presenceColour = UI_COLOR_SUCCESS;
             } else if (status.installed) {
                 // A confirmed link is shown differently from a name guess: only

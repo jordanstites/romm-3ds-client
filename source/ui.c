@@ -336,8 +336,8 @@ void ui_draw_icon_sync(float x, float y, float size, u32 color) {
     float tx = x + 4 * scale;
     float ty = y + 6 * scale;
     C2D_DrawRectSolid(tx, ty, 0, barW, barH, color);
-    C2D_DrawTriangle(tx + barW, ty - head / 2, color, tx + barW, ty + barH + head / 2, color,
-                     tx + barW + head, ty + barH / 2, color, 0);
+    C2D_DrawTriangle(tx + barW, ty - head / 2, color, tx + barW, ty + barH + head / 2, color, tx + barW + head,
+                     ty + barH / 2, color, 0);
 
     // Bottom bar, arrowhead on the left
     float bx = x + 5 * scale;

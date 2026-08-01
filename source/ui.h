@@ -20,7 +20,7 @@
 //   background #0D1117   surface #161B22   toplayer #1C2330
 //   primary #8B74E8      secondary #9E8CD6  accent  #E1A38D
 #define UI_COLOR_BG C2D_Color32(0x0D, 0x11, 0x17, 0xFF)
-#define UI_COLOR_TEXT C2D_Color32(0xFE, 0xFD, 0xFE, 0xFF)   // romm-white
+#define UI_COLOR_TEXT C2D_Color32(0xFE, 0xFD, 0xFE, 0xFF)     // romm-white
 #define UI_COLOR_TEXT_DIM C2D_Color32(0x9E, 0x8C, 0xD6, 0xFF) // secondary
 #define UI_COLOR_SELECTED C2D_Color32(0x60, 0x43, 0xC8, 0xFF) // primary-darken
 #define UI_COLOR_ACCENT C2D_Color32(0x8B, 0x74, 0xE8, 0xFF)   // primary

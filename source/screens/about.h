@@ -7,8 +7,7 @@
 
 #include <3ds.h>
 
-typedef enum { ABOUT_NONE, ABOUT_BACK,
-    ABOUT_INSTALLED } AboutResult;
+typedef enum { ABOUT_NONE, ABOUT_BACK, ABOUT_INSTALLED } AboutResult;
 
 // Handle input, returns result
 AboutResult about_update(u32 kDown);
