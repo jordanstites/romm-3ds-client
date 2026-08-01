@@ -37,8 +37,9 @@ typedef struct {
     char md5Hash[64];
 } RomDetail;
 
-// Initialize API module
-void api_init(void);
+// Bring up the HTTP transport. Returns false if the network stack could not
+// start, which on a 3DS usually means the console is offline.
+bool api_init(void);
 
 // Cleanup API module
 void api_exit(void);
@@ -82,7 +83,7 @@ void api_free_rom_detail(RomDetail *detail);
 
 // Progress callback for downloads (bytesDownloaded, totalBytes; total may be 0 if unknown)
 // Return true to continue, false to cancel
-typedef bool (*DownloadProgressCb)(uint32_t bytesDownloaded, uint32_t totalBytes);
+typedef bool (*DownloadProgressCb)(uint64_t bytesDownloaded, uint64_t totalBytes);
 
 // Download a ROM file to the specified path
 // fileName is the fs_name from the ROM detail (used in URL path)

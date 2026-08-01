@@ -111,7 +111,7 @@ static void set_download_name(const char *slug, const char *name) {
 
 // Progress callback shared by download and extraction
 // Returns true to continue, false to cancel
-static bool progress_callback(uint32_t current, uint32_t total) {
+static bool progress_callback(uint64_t current, uint64_t total) {
     float progress = total > 0 ? (float)current / total : -1.0f;
 
     char sizeText[64];
@@ -896,14 +896,18 @@ int main(int argc, char *argv[]) {
     topScreen = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
 
     romfsInit();
-    httpcInit(0);
 
     ui_init();
     sound_init();
     log_init();
     config_init(&config);
     mkdir(CONFIG_DIR, 0755);
-    api_init();
+
+    // Brings up the socket service and curl. httpc/sslc are no longer used --
+    // see http.h for why.
+    if (!api_init()) {
+        log_error("Network unavailable. Check the console's internet connection.");
+    }
 
     // A stored token is independent of config validity: the server URL can be
     // set while the console is still unpaired, and vice versa.
@@ -992,7 +996,6 @@ int main(int argc, char *argv[]) {
     ui_exit();
     api_exit();
 
-    httpcExit();
     romfsExit();
     C2D_Fini();
     C3D_Fini();

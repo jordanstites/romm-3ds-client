@@ -3,6 +3,7 @@
  */
 
 #include "api.h"
+#include "http.h"
 #include "log.h"
 #include "cJSON/cJSON.h"
 #include <stdio.h>
@@ -13,11 +14,9 @@
 #include <3ds.h>
 
 #define MAX_URL_LEN 1024
-#define MAX_RESPONSE_SIZE (512 * 1024) // 512KB max response
-#define TRACE_BODY_PREVIEW_LEN 500     // Max chars to show for response body
+#define TRACE_BODY_PREVIEW_LEN 500 // Max chars to show for response body
 
 static char baseUrl[256] = "";
-static char authHeader[512] = "";
 
 static void url_encode(const char *src, char *dst, size_t dstLen) {
     static const char *unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~";
@@ -35,12 +34,12 @@ static void url_encode(const char *src, char *dst, size_t dstLen) {
     dst[j] = '\0';
 }
 
-void api_init(void) {
-    // Nothing to initialize
+bool api_init(void) {
+    return http_init();
 }
 
 void api_exit(void) {
-    // Nothing to cleanup
+    http_exit();
 }
 
 void api_set_base_url(const char *url) {
@@ -53,106 +52,45 @@ void api_set_base_url(const char *url) {
 }
 
 void api_set_bearer_token(const char *token) {
-    if (!token || token[0] == '\0') {
-        authHeader[0] = '\0';
-        return;
-    }
-
-    snprintf(authHeader, sizeof(authHeader), "Bearer %s", token);
+    http_set_bearer_token(token);
 }
 
 void api_clear_auth(void) {
-    memset(authHeader, 0, sizeof(authHeader));
+    http_clear_auth();
 }
 
-// Configure common headers on an open httpc context
-static void setup_http_headers(httpcContext *context, const char *accept) {
-    httpcSetSSLOpt(context, SSLCOPT_DisableVerify);
-    httpcSetKeepAlive(context, HTTPC_KEEPALIVE_ENABLED);
-    httpcAddRequestHeaderField(context, "User-Agent", "Rommlet/1.0");
-    httpcAddRequestHeaderField(context, "Accept", accept);
-    if (authHeader[0] != '\0') {
-        httpcAddRequestHeaderField(context, "Authorization", authHeader);
-    }
-}
-
-static char *http_get(const char *url, int *statusCode) {
-    httpcContext context;
-    Result ret;
-
+// Fetch a JSON body. Returns a heap string the caller frees, or NULL on any
+// failure. statusCode is set whenever the server answered at all, so callers
+// can distinguish "unauthorized" from "unreachable".
+static char *fetch_json(const char *url, int *statusCode) {
     *statusCode = 0;
 
     log_debug("GET %s", url);
 
-    ret = httpcOpenContext(&context, HTTPC_METHOD_GET, url, 1);
-    if (R_FAILED(ret)) {
-        log_error("httpcOpenContext failed: %08lX", ret);
+    HttpResponse response;
+    if (!http_get(url, &response)) {
         return NULL;
     }
 
-    setup_http_headers(&context, "application/json");
+    *statusCode = (int)response.statusCode;
+    log_debug("Status: %ld", response.statusCode);
 
-    ret = httpcBeginRequest(&context);
-    if (R_FAILED(ret)) {
-        log_error("httpcBeginRequest failed: %08lX", ret);
-        httpcCloseContext(&context);
+    if (response.statusCode != 200) {
+        log_error("HTTP error: %ld", response.statusCode);
+        http_response_free(&response);
         return NULL;
     }
 
-    u32 status;
-    ret = httpcGetResponseStatusCode(&context, &status);
-    if (R_FAILED(ret)) {
-        log_error("httpcGetResponseStatusCode failed: %08lX", ret);
-        httpcCloseContext(&context);
-        return NULL;
-    }
-    *statusCode = (int)status;
-
-    log_debug("Status: %lu", status);
-
-    if (status != 200) {
-        log_error("HTTP error: %lu", status);
-        httpcCloseContext(&context);
-        return NULL;
-    }
-
-    // Get content length
-    u32 contentSize = 0;
-    ret = httpcGetDownloadSizeState(&context, NULL, &contentSize);
-    if (contentSize == 0 || contentSize > MAX_RESPONSE_SIZE) {
-        contentSize = MAX_RESPONSE_SIZE;
-    }
-
-    // Allocate buffer
-    char *buffer = malloc(contentSize + 1);
-    if (!buffer) {
-        log_error("Failed to allocate response buffer");
-        httpcCloseContext(&context);
-        return NULL;
-    }
-
-    // Download data
-    u32 downloadedSize = 0;
-    ret = httpcDownloadData(&context, (u8 *)buffer, contentSize, &downloadedSize);
-    if (R_FAILED(ret) && ret != HTTPC_RESULTCODE_DOWNLOADPENDING) {
-        log_error("httpcDownloadData failed: %08lX", ret);
-        free(buffer);
-        httpcCloseContext(&context);
-        return NULL;
-    }
-
-    buffer[downloadedSize] = '\0';
-    httpcCloseContext(&context);
-
-    log_debug("Size: %lu bytes", downloadedSize);
-    if (downloadedSize <= TRACE_BODY_PREVIEW_LEN) {
-        log_trace("Body:\n%s", buffer);
+    log_debug("Size: %u bytes", (unsigned)response.size);
+    if (response.size <= TRACE_BODY_PREVIEW_LEN) {
+        log_trace("Body:\n%s", response.data);
     } else {
-        log_trace("Body (truncated):\n%.*s...\n[%lu more bytes]", TRACE_BODY_PREVIEW_LEN, buffer,
-                  downloadedSize - TRACE_BODY_PREVIEW_LEN);
+        log_trace("Body (truncated):\n%.*s...\n[%u more bytes]", TRACE_BODY_PREVIEW_LEN, response.data,
+                  (unsigned)(response.size - TRACE_BODY_PREVIEW_LEN));
     }
 
-    return buffer;
+    // Ownership transfers to the caller; do not free via http_response_free.
+    return response.data;
 }
 
 Platform *api_get_platforms(int *count) {
@@ -162,7 +100,7 @@ Platform *api_get_platforms(int *count) {
     snprintf(url, sizeof(url), "%s/api/platforms", baseUrl);
 
     int statusCode;
-    char *response = http_get(url, &statusCode);
+    char *response = fetch_json(url, &statusCode);
     if (!response) {
         return NULL;
     }
@@ -289,7 +227,7 @@ Rom *api_get_roms(int platformId, int offset, int limit, int *count, int *total)
              offset, limit);
 
     int statusCode;
-    char *response = http_get(url, &statusCode);
+    char *response = fetch_json(url, &statusCode);
     if (!response) {
         *count = 0;
         *total = 0;
@@ -315,7 +253,7 @@ Rom *api_search_roms(const char *searchTerm, const int *platformIds, int platfor
     }
 
     int statusCode;
-    char *response = http_get(url, &statusCode);
+    char *response = fetch_json(url, &statusCode);
     if (!response) {
         *count = 0;
         *total = 0;
@@ -337,7 +275,7 @@ RomDetail *api_get_rom_detail(int romId) {
     snprintf(url, sizeof(url), "%s/api/roms/%d", baseUrl, romId);
 
     int statusCode;
-    char *response = http_get(url, &statusCode);
+    char *response = fetch_json(url, &statusCode);
     if (!response) {
         return NULL;
     }
@@ -402,148 +340,11 @@ bool api_download_rom(int romId, const char *fileName, const char *destPath, Dow
     char url[MAX_URL_LEN];
     snprintf(url, sizeof(url), "%s/api/roms/%d/content/%s", baseUrl, romId, encodedName);
 
-    httpcContext context;
-    Result ret;
-
     log_debug("GET %s", url);
     log_debug("Saving to: %s", destPath);
 
-    ret = httpcOpenContext(&context, HTTPC_METHOD_GET, url, 1);
-    if (R_FAILED(ret)) {
-        log_error("httpcOpenContext failed: %08lX", ret);
-        return false;
-    }
-
-    setup_http_headers(&context, "*/*");
-
-    ret = httpcBeginRequest(&context);
-    if (R_FAILED(ret)) {
-        log_error("httpcBeginRequest failed: %08lX", ret);
-        httpcCloseContext(&context);
-        return false;
-    }
-
-    // Handle redirects
-    u32 status;
-    ret = httpcGetResponseStatusCode(&context, &status);
-    if (R_FAILED(ret)) {
-        log_error("httpcGetResponseStatusCode failed: %08lX", ret);
-        httpcCloseContext(&context);
-        return false;
-    }
-
-    while (status >= 300 && status < 400) {
-        char newUrl[MAX_URL_LEN];
-        ret = httpcGetResponseHeader(&context, "Location", newUrl, sizeof(newUrl));
-        if (R_FAILED(ret)) {
-            log_error("Failed to get redirect location");
-            httpcCloseContext(&context);
-            return false;
-        }
-
-        log_debug("Redirect %lu -> %s", status, newUrl);
-
-        httpcCloseContext(&context);
-
-        ret = httpcOpenContext(&context, HTTPC_METHOD_GET, newUrl, 1);
-        if (R_FAILED(ret)) {
-            log_error("httpcOpenContext failed on redirect: %08lX", ret);
-            return false;
-        }
-
-        setup_http_headers(&context, "*/*");
-
-        ret = httpcBeginRequest(&context);
-        if (R_FAILED(ret)) {
-            log_error("httpcBeginRequest failed on redirect: %08lX", ret);
-            httpcCloseContext(&context);
-            return false;
-        }
-
-        ret = httpcGetResponseStatusCode(&context, &status);
-        if (R_FAILED(ret)) {
-            log_error("httpcGetResponseStatusCode failed: %08lX", ret);
-            httpcCloseContext(&context);
-            return false;
-        }
-    }
-
-    log_debug("Status: %lu", status);
-
-    if (status != 200) {
-        log_error("HTTP error: %lu", status);
-        httpcCloseContext(&context);
-        return false;
-    }
-
-    // Get content length for progress reporting
-    u32 contentLength = 0;
-    httpcGetDownloadSizeState(&context, NULL, &contentLength);
-
-    // Open destination file
-    FILE *file = fopen(destPath, "wb");
-    if (!file) {
-        log_error("Failed to open file: %s (errno: %d)", destPath, errno);
-        httpcCloseContext(&context);
-        return false;
-    }
-
-// Download in chunks and write to file
-#define DOWNLOAD_CHUNK_SIZE (64 * 1024)
-    u8 *buffer = malloc(DOWNLOAD_CHUNK_SIZE);
-    if (!buffer) {
-        log_error("Failed to allocate download buffer");
-        fclose(file);
-        httpcCloseContext(&context);
-        return false;
-    }
-
-    u32 totalDownloaded = 0;
-    bool success = true;
-
-    while (true) {
-        u32 bytesRead = 0;
-        ret = httpcDownloadData(&context, buffer, DOWNLOAD_CHUNK_SIZE, &bytesRead);
-
-        if (bytesRead > 0) {
-            size_t written = fwrite(buffer, 1, bytesRead, file);
-            if (written != bytesRead) {
-                log_error("Failed to write to file");
-                success = false;
-                break;
-            }
-            totalDownloaded += bytesRead;
-            if (progressCb) {
-                if (!progressCb(totalDownloaded, contentLength)) {
-                    log_info("Download cancelled by user");
-                    success = false;
-                    break;
-                }
-            }
-        }
-
-        if (ret == HTTPC_RESULTCODE_DOWNLOADPENDING) {
-            continue;
-        } else if (R_FAILED(ret)) {
-            log_error("httpcDownloadData failed: %08lX", ret);
-            success = false;
-            break;
-        } else {
-            // Download complete
-            break;
-        }
-    }
-
-    free(buffer);
-    fclose(file);
-    httpcCloseContext(&context);
-
-    log_debug("Downloaded %lu bytes", totalDownloaded);
-
-    // If download failed, remove partial file
-    if (!success) {
-        remove(destPath);
-    }
-
-    return success;
+    // Redirects, chunked streaming to disk, partial-file cleanup and the
+    // cancel path all live in the transport now. RomM behind a reverse proxy
+    // or S3-backed storage does redirect, so following them still matters.
+    return http_download_to_file(url, destPath, progressCb);
 }

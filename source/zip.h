@@ -10,7 +10,7 @@
 
 // Progress callback for extraction. Returns true to continue, false to cancel.
 // extracted: bytes extracted so far, total: total uncompressed size
-typedef bool (*ExtractProgressCb)(uint32_t extracted, uint32_t total);
+typedef bool (*ExtractProgressCb)(uint64_t extracted, uint64_t total);
 
 // Extract all files from a zip archive into destDir.
 // Deletes the zip file on success.

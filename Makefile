@@ -62,7 +62,9 @@ CXXFLAGS      := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS       := -g $(ARCH)
 LDFLAGS       = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS          := -lcitro2d -lcitro3d -lctru -lminizip -lz -lm
+# curl/mbedTLS replace the native httpc+sslc stack, which caps at TLS 1.1.
+# Link order per portlibs/3ds/lib/pkgconfig/libcurl.pc.
+LIBS          := -lcitro2d -lcitro3d -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lminizip -lz -lctru -lm
 
 #---------------------------------------------------------------------------------
 # List of directories containing libraries
