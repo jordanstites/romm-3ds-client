@@ -386,6 +386,8 @@ static void download_focused_rom(const Rom *rom, const char *slug, const char *f
             // Record the mapping so save sync can tie files on this card back
             // to a rom_id without paging the whole library over the API.
             library_record(rom->id, slug, rom->fsName);
+            // The file exists now; refresh so the badge reflects that.
+            roms_refresh_status();
         } else {
             remove(destPath);
         }
@@ -1035,7 +1037,12 @@ static void handle_state_installed(u32 kDown) {
         u64 titleId = installed_get_picked();
         if (titleId != 0 && titlemap_set(romDetail->id, titleId)) {
             sound_play_click();
-            romstatus_invalidate();
+            // Recompute the cached per-ROM status so the badge updates now
+            // rather than after a relaunch. Deliberately not
+            // romstatus_invalidate(): that clears the server save-count tally,
+            // which linking does not change, and would blank the save badges
+            // until the platform was re-entered.
+            roms_refresh_status();
         }
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
         currentState = nav_pop();
@@ -1052,6 +1059,16 @@ static void handle_state_installed(u32 kDown) {
 static void handle_state_sync(u32 kDown) {
     if (sync_screen_update(kDown) == SYNC_SCREEN_DONE) {
         sound_play_pop();
+
+        // Sync changes saves on both sides, so the server-side tally is stale,
+        // not just the local computation. Drop it and refetch for the platform
+        // being viewed before recomputing badges.
+        romstatus_invalidate();
+        if (platforms && selectedPlatformIndex < platformCount) {
+            romstatus_load_platform(platforms[selectedPlatformIndex].id);
+        }
+        roms_refresh_status();
+
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
         currentState = nav_pop();
     }
