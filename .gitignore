@@ -1,0 +1,33 @@
+# Build outputs
+build/
+dist/
+*.3dsx
+*.cia
+*.elf
+*.smdh
+*.map
+
+# Object files
+*.o
+*.d
+
+# Generated assets
+meta/icon.png
+meta/banner.png
+meta/icon.bin
+meta/banner.bin
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+romm-3ds-client.lst
+rommlet.lst
+
+# Toolchain installers downloaded into the tree
+*.pkg

@@ -1,0 +1,28 @@
+{
+  "name": "Rommlet 3DS Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.makefile-tools"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "C_Cpp.default.includePath": [
+          "${workspaceFolder}/source",
+          "/opt/devkitpro/libctru/include",
+          "/opt/devkitpro/devkitARM/arm-none-eabi/include"
+        ]
+      }
+    }
+  },
+  "postCreateCommand": "echo '✅ Ready for 3DS development! Run: make'",
+  "remoteUser": "vscode"
+}
