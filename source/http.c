@@ -532,6 +532,125 @@ bool http_download_to_file(const char *url, const char *destPath, HttpProgressCb
 }
 
 // ---------------------------------------------------------------------------
+// Streaming to an arbitrary sink
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    HttpSinkFn sink;
+    void *userdata;
+    HttpProgressCb progressCb;
+    bool cancelled;
+    bool sinkFailed;
+} SinkState;
+
+static size_t write_to_sink(void *contents, size_t size, size_t nmemb, void *userdata) {
+    SinkState *state = (SinkState *)userdata;
+    size_t chunk = size * nmemb;
+
+    if (!state->sink(contents, chunk, state->userdata)) {
+        state->sinkFailed = true;
+        return 0; // aborts the transfer
+    }
+    return chunk;
+}
+
+static int report_sink_progress(void *userdata, curl_off_t total, curl_off_t received, curl_off_t ultotal,
+                                curl_off_t uploaded) {
+    (void)ultotal;
+    (void)uploaded;
+
+    SinkState *state = (SinkState *)userdata;
+    if (!state->progressCb) return 0;
+
+    if (!state->progressCb((uint64_t)received, (uint64_t)total)) {
+        state->cancelled = true;
+        return 1;
+    }
+    return 0;
+}
+
+bool http_download_to_sink(const char *url, HttpSinkFn sink, void *userdata, HttpProgressCb progressCb) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return false;
+
+    SinkState state = {.sink = sink, .userdata = userdata, .progressCb = progressCb};
+
+    struct curl_slist *headers = NULL;
+    apply_common_options(curl, url, &headers);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_sink);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &state);
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (long)DOWNLOAD_READ_BUFFER);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, report_sink_progress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
+    if (headers) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    CURLcode code = curl_easy_perform(curl);
+
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+
+    // A redirect body must not reach the sink, so hops are followed only after
+    // the sink has been told to discard what it has.
+    char nextUrl[1024];
+    struct curl_slist *hopHeaders = NULL;
+    for (int hop = 0; code == CURLE_OK && hop < MAX_REDIRECTS; hop++) {
+        if (!next_redirect(curl, status, nextUrl, sizeof(nextUrl))) break;
+
+        if (hopHeaders) curl_slist_free_all(hopHeaders);
+        hopHeaders = NULL;
+        apply_common_options(curl, nextUrl, &hopHeaders);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hopHeaders);
+
+        code = curl_easy_perform(curl);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    }
+    if (hopHeaders) curl_slist_free_all(hopHeaders);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (code != CURLE_OK) {
+        if (state.cancelled) {
+            log_info("Transfer cancelled");
+        } else if (state.sinkFailed) {
+            log_error("Aborted: the destination rejected data from %s", url);
+        } else {
+            log_transport_failure(code, url);
+        }
+        return false;
+    }
+
+    if (status < 200 || status >= 300) {
+        log_error("%s returned HTTP %ld", url, status);
+        return false;
+    }
+
+    return true;
+}
+
+bool http_get_range(const char *url, uint64_t from, uint64_t to, HttpResponse *response) {
+    memset(response, 0, sizeof(HttpResponse));
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return false;
+
+    struct curl_slist *headers = NULL;
+    apply_common_options(curl, url, &headers);
+
+    char range[64];
+    snprintf(range, sizeof(range), "%llu-%llu", (unsigned long long)from, (unsigned long long)to);
+    curl_easy_setopt(curl, CURLOPT_RANGE, range);
+
+    bool ok = perform_with_body(curl, headers, url, response);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return ok;
+}
+
+// ---------------------------------------------------------------------------
 // Multipart upload
 // ---------------------------------------------------------------------------
 

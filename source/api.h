@@ -6,6 +6,7 @@
 #define API_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Platform data from /api/platforms
@@ -60,6 +61,11 @@ void api_clear_auth(void);
 // HTTP status of the most recent request, or 0 if it never reached the server.
 // Pair with auth_status_is_unauthenticated() to decide whether to re-pair.
 int api_last_status(void);
+
+// Builds the download URL for a ROM's file, with the name percent-encoded.
+// Exposed so callers that stream elsewhere -- the CIA installer, header probes
+// -- do not have to reimplement the encoding.
+bool api_build_content_url(int romId, const char *fsName, char *out, size_t outLen);
 
 // Fetch platforms from server
 // Returns array of platforms, sets count. Caller must free with api_free_platforms

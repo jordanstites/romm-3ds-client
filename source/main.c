@@ -20,6 +20,7 @@
 #include "romstatus.h"
 #include "titlemap.h"
 #include "savearchive.h"
+#include "install.h"
 #include "http.h"
 #include "cJSON/cJSON.h"
 #include "log.h"
@@ -1041,6 +1042,76 @@ static void download_native_save(void) {
     }
 }
 
+// Streams a CIA from the server straight into the AM installer.
+//
+// Nothing is written to the SD card: AM_StartCiaInstall returns a filesystem
+// handle, so the download can be piped directly into it. That also means the
+// FAT32 4GB per-file limit does not apply, since no file is ever created.
+static bool install_sink(const void *data, size_t length, void *userdata) {
+    return install_write((CiaInstall *)userdata, data, length);
+}
+
+static void install_focused_rom(void) {
+    if (!romDetail) return;
+
+    const char *ext = strrchr(romDetail->fsName, '.');
+    bool isCia = ext && strcasecmp(ext, ".cia") == 0;
+
+    if (!isCia) {
+        // A .3ds has to be converted before AM will take it. Say so plainly
+        // rather than starting something that cannot finish.
+        log_error("Only .cia files can be installed directly.");
+        log_error("'%s' needs converting first -- use GodMode9.", romDetail->fsName);
+        return;
+    }
+
+    char url[1024];
+    if (!api_build_content_url(romDetail->id, romDetail->fsName, url, sizeof(url))) return;
+
+    // Read the ticket first so the title can be sent to the right media. A
+    // DSiWare or system title installed to the SD card would not work.
+    FS_MediaType media = MEDIATYPE_SD;
+    HttpResponse header;
+    if (http_get_range(url, 0, INSTALL_HEADER_PROBE_BYTES, &header) && header.statusCode >= 200 &&
+        header.statusCode < 300) {
+        u64 titleId = install_title_id_from_header(header.data, header.size);
+        if (titleId != 0) {
+            media = install_destination_for(titleId);
+            log_info("Installing %016llX", (unsigned long long)titleId);
+        } else {
+            log_info("Could not read the title ID; installing to SD");
+        }
+    }
+    http_response_free(&header);
+
+    CiaInstall install;
+    if (!install_begin(&install, media)) return;
+
+    bottom_set_mode(BOTTOM_MODE_DOWNLOADING);
+    set_download_name(currentPlatformSlug, romDetail->name);
+    downloadQueueText = NULL;
+    progressLabel = "Installing...";
+
+    bool ok = http_download_to_sink(url, install_sink, &install, progress_callback);
+
+    if (ok) {
+        ok = install_finish(&install);
+    } else {
+        // Leaving a partial import open makes the next attempt fail.
+        install_cancel(&install);
+    }
+
+    if (ok) {
+        log_info("Installed '%s'", romDetail->name);
+        titles_scan();
+        roms_refresh_status();
+    } else {
+        log_error("Install of '%s' failed", romDetail->name);
+    }
+
+    sync_bottom_after_action(STATE_ROM_DETAIL);
+}
+
 static void handle_state_rom_detail(u32 kDown) {
     RomDetailResult result = romdetail_update(kDown);
 
@@ -1069,6 +1140,11 @@ static void handle_state_rom_detail(u32 kDown) {
 
     if (result == ROMDETAIL_DOWNLOAD_SAVE) {
         download_native_save();
+        return;
+    }
+
+    if (result == ROMDETAIL_INSTALL) {
+        install_focused_rom();
         return;
     }
 

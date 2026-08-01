@@ -78,6 +78,18 @@ bool http_post_json(const char *url, const char *jsonBody, HttpResponse *respons
 // on failure or cancellation so a stale truncated ROM is not left behind.
 bool http_download_to_file(const char *url, const char *destPath, HttpProgressCb progressCb);
 
+// Receives response bytes in order. Return false to abort the transfer.
+typedef bool (*HttpSinkFn)(const void *data, size_t length, void *userdata);
+
+// Streams a response to an arbitrary sink rather than a file, so a download can
+// go straight into something like a CIA install handle without staging on the
+// SD card first.
+bool http_download_to_sink(const char *url, HttpSinkFn sink, void *userdata, HttpProgressCb progressCb);
+
+// Fetches a byte range. Used to read a file's header without downloading it --
+// RomM's per-file endpoint honours Range natively.
+bool http_get_range(const char *url, uint64_t from, uint64_t to, HttpResponse *response);
+
 // Multipart upload of a single file field, for POST /api/saves.
 bool http_post_file(const char *url, const char *fieldName, const char *filePath, HttpResponse *response);
 

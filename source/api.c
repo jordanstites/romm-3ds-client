@@ -71,6 +71,15 @@ void api_clear_auth(void) {
     http_clear_auth();
 }
 
+bool api_build_content_url(int romId, const char *fsName, char *out, size_t outLen) {
+    if (!fsName || !out) return false;
+
+    char encoded[512];
+    url_encode(fsName, encoded, sizeof(encoded));
+    snprintf(out, outLen, "%s/api/roms/%d/content/%s", baseUrl, romId, encoded);
+    return true;
+}
+
 int api_last_status(void) {
     return lastStatus;
 }
