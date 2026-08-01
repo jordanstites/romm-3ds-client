@@ -55,6 +55,10 @@ void api_set_base_url(const char *url) {
     }
 }
 
+const char *api_get_base_url(void) {
+    return baseUrl;
+}
+
 void api_set_bearer_token(const char *token) {
     http_set_bearer_token(token);
 }

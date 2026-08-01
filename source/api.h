@@ -47,6 +47,9 @@ void api_exit(void);
 // Set base URL for API requests
 void api_set_base_url(const char *url);
 
+// Current base URL, for modules that build their own request URLs.
+const char *api_get_base_url(void);
+
 // Set the RomM client token sent as `Authorization: Bearer ...`.
 // Passing NULL or "" sends requests unauthenticated.
 void api_set_bearer_token(const char *token);

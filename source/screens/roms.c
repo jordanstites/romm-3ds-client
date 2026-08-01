@@ -3,6 +3,7 @@
  */
 
 #include "roms.h"
+#include "../romstatus.h"
 #include "../ui.h"
 #include "../listnav.h"
 #include <stdio.h>
@@ -11,7 +12,14 @@
 
 static Rom *romList = NULL;
 static char currentPlatform[128] = "";
+static char currentPlatformSlug[CONFIG_MAX_SLUG_LEN] = "";
+static const Config *statusConfig = NULL;
 static ListNav nav;
+
+void roms_set_status_context(const Config *config, const char *platformSlug) {
+    statusConfig = config;
+    snprintf(currentPlatformSlug, sizeof(currentPlatformSlug), "%s", platformSlug ? platformSlug : "");
+}
 
 void roms_init(void) {
     romList = NULL;
@@ -120,9 +128,57 @@ void roms_draw(void) {
     int start, end;
     listnav_visible_range(&nav, &start, &end);
 
+    // Badges are drawn right-aligned, so the name gets the remaining width.
+    float badgeZone = 54.0f;
+
     for (int i = start; i < end; i++) {
         if (i < nav.count) {
-            ui_draw_list_item(UI_PADDING, y, itemWidth, romList[i].name, i == nav.selectedIndex);
+            bool selected = (i == nav.selectedIndex);
+            if (selected) {
+                ui_draw_rect(UI_PADDING, y, itemWidth, UI_LINE_HEIGHT, UI_COLOR_SELECTED);
+            }
+
+            RomStatus status = {0};
+            if (statusConfig && currentPlatformSlug[0]) {
+                status = romstatus_for(statusConfig, romList[i].id, currentPlatformSlug, romList[i].fsName);
+            }
+
+            // Truncate the name rather than letting it run under the badges.
+            char label[288];
+            snprintf(label, sizeof(label), "%.255s", romList[i].name);
+
+            // Shorten until it clears the badge zone, then mark the cut.
+            float maxNameWidth = itemWidth - badgeZone - UI_PADDING * 2;
+            size_t len = strlen(label);
+            while (len > 3 && ui_get_text_width(label) > maxNameWidth) {
+                len--;
+                label[len] = '\0';
+            }
+            if (len > 3 && len < strlen(romList[i].name)) {
+                label[len - 3] = '\0';
+                strcat(label, "...");
+            }
+            ui_draw_text(UI_PADDING + UI_PADDING, y + 2, label, UI_COLOR_TEXT);
+
+            float bx = UI_PADDING + itemWidth - UI_PADDING;
+
+            // Save count, right-most. Green when both sides have one, gold when
+            // only one side does -- i.e. a sync would do something.
+            if (status.serverSaves > 0 || status.localSaves > 0) {
+                char saveText[24];
+                snprintf(saveText, sizeof(saveText), "S%d/%d", status.localSaves, status.serverSaves);
+                bx -= ui_get_text_width_scaled(saveText, 0.45f);
+                u32 colour = (status.serverSaves > 0 && status.localSaves > 0) ? UI_COLOR_SUCCESS : UI_COLOR_GOLD;
+                ui_draw_text_scaled(bx, y + 4, saveText, colour, 0.45f);
+                bx -= 6;
+            }
+
+            // Presence on the console.
+            const char *presence = status.onDevice ? "DL" : (status.installed ? "IN" : NULL);
+            if (presence) {
+                bx -= ui_get_text_width_scaled(presence, 0.45f);
+                ui_draw_text_scaled(bx, y + 4, presence, UI_COLOR_INFO, 0.45f);
+            }
         } else {
             bool selected = (i == nav.selectedIndex);
             if (selected) {

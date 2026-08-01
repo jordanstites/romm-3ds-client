@@ -8,6 +8,7 @@
 #include <3ds.h>
 #include <stdbool.h>
 #include "../api.h"
+#include "../config.h"
 
 typedef enum { ROMS_NONE, ROMS_BACK, ROMS_SELECTED, ROMS_LOAD_MORE } RomsResult;
 
@@ -19,6 +20,10 @@ void roms_clear(void);
 
 // Set ROM data (takes ownership of roms pointer)
 void roms_set_data(Rom *roms, int count, int total, const char *platformName);
+
+// Context needed to show per-ROM status badges (on-device, saves). Set once at
+// startup and when entering a platform.
+void roms_set_status_context(const Config *config, const char *platformSlug);
 
 // Append more ROM data (for infinite scroll)
 void roms_append_data(Rom *roms, int count);

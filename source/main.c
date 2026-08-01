@@ -17,6 +17,7 @@
 #include "compat.h"
 #include "library.h"
 #include "titles.h"
+#include "romstatus.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -770,6 +771,10 @@ static void handle_state_platforms(u32 kDown) {
         log_info("Fetching ROMs for %s...", platforms[selectedPlatformIndex].displayName);
         roms_clear();
         int romCount, romTotal;
+        // One request per platform gives save counts for every ROM in it; the
+        // list endpoint's SimpleRomSchema carries none.
+        romstatus_load_platform(platforms[selectedPlatformIndex].id);
+        roms_set_status_context(&config, platforms[selectedPlatformIndex].slug);
         Rom *roms = api_get_roms(platforms[selectedPlatformIndex].id, 0, ROM_PAGE_SIZE, &romCount, &romTotal);
         if (roms) {
             log_info("Found %d/%d ROMs", romCount, romTotal);
