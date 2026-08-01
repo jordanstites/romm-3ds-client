@@ -33,6 +33,7 @@ void romstatus_invalidate(void);
 
 // Status for one ROM. platformSlug and fsName are needed for the on-device and
 // local-save checks, which are filesystem lookups rather than API calls.
-RomStatus romstatus_for(const Config *config, int romId, const char *platformSlug, const char *fsName);
+RomStatus romstatus_for(const Config *config, int romId, const char *platformSlug, const char *romName,
+                        const char *fsName);
 
 #endif // ROMSTATUS_H

@@ -106,57 +106,56 @@ static int count_local_saves(const Config *config, const char *platformSlug, con
     return found;
 }
 
-// Case-insensitive substring match, used to guess whether an installed title
-// corresponds to a RomM entry. Deliberately only drives a display hint -- a
-// wrong guess here shows a misleading icon, which is recoverable, whereas the
-// same guess driving a save restore would not be.
-static bool name_contains(const char *haystack, const char *needle) {
-    if (!haystack || !needle || needle[0] == '\0') return false;
-
-    for (const char *h = haystack; *h; h++) {
-        const char *a = h;
-        const char *b = needle;
-        while (*a && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
-            a++;
-            b++;
-        }
-        if (*b == '\0') return true;
-    }
-    return false;
-}
-
-// Strip the extension and anything in brackets, so "Pokemon Sun (USA).3ds"
-// compares against an installed title's "Pokemon Sun".
-static void clean_rom_name(const char *fsName, char *out, size_t outLen) {
+// Reduce a title to comparable form: lowercase, letters and digits only.
+// Punctuation, spacing, region tags and edition suffixes vary constantly
+// between a RomM filename and a title's own SMDH name, and none of it carries
+// meaning for identification.
+static void normalize_title(const char *src, char *out, size_t outLen) {
     size_t j = 0;
-    for (size_t i = 0; fsName[i] && j < outLen - 1; i++) {
-        char c = fsName[i];
-        if (c == '(' || c == '[') break;
-        if (c == '.') {
-            // Could be an extension or a real dot; assume extension near the end.
-            if (!strchr(&fsName[i + 1], '.')) break;
-        }
-        out[j++] = c;
+    for (size_t i = 0; src[i] && j < outLen - 1; i++) {
+        unsigned char ch = (unsigned char)src[i];
+        // Region and language tags are noise: "Pokemon Sun (USA) (En,Ja,Fr)".
+        if (ch == '(' || ch == '[') break;
+        if (isalnum(ch)) out[j++] = (char)tolower(ch);
     }
-    while (j > 0 && (out[j - 1] == ' ' || out[j - 1] == '_')) j--;
     out[j] = '\0';
 }
 
-static bool looks_installed(const char *fsName) {
+// One name is a prefix of the other after normalisation. Prefix rather than
+// substring: "mariokart7" should not match "mariokart" from another entry, but
+// an SMDH name truncated relative to the full ROM name still should.
+static bool titles_look_equivalent(const char *a, const char *b) {
+    if (a[0] == '\0' || b[0] == '\0') return false;
+
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+    size_t shorter = la < lb ? la : lb;
+
+    // Too short to be meaningful; "wii" would match far too much.
+    if (shorter < 6) return la == lb && strcmp(a, b) == 0;
+
+    return strncmp(a, b, shorter) == 0;
+}
+
+static bool looks_installed(const char *romName, const char *fsName) {
     if (titles_count() == 0) return false;
 
-    char cleaned[128];
-    clean_rom_name(fsName, cleaned, sizeof(cleaned));
-    if (cleaned[0] == '\0') return false;
+    char candidates[2][160];
+    normalize_title(romName ? romName : "", candidates[0], sizeof(candidates[0]));
+    normalize_title(fsName ? fsName : "", candidates[1], sizeof(candidates[1]));
 
+    char installed[160];
     for (int i = 0; i < titles_count(); i++) {
-        const InstalledTitle *t = titles_get(i);
-        if (name_contains(t->name, cleaned) || name_contains(cleaned, t->name)) return true;
+        normalize_title(titles_get(i)->name, installed, sizeof(installed));
+        for (int c = 0; c < 2; c++) {
+            if (titles_look_equivalent(installed, candidates[c])) return true;
+        }
     }
     return false;
 }
 
-RomStatus romstatus_for(const Config *config, int romId, const char *platformSlug, const char *fsName) {
+RomStatus romstatus_for(const Config *config, int romId, const char *platformSlug, const char *romName,
+                        const char *fsName) {
     RomStatus status = {0};
 
     status.serverSaves = tally_get(romId);
@@ -173,7 +172,7 @@ RomStatus romstatus_for(const Config *config, int romId, const char *platformSlu
     // Only meaningful for native 3DS titles; other platforms are never
     // "installed" in the AM sense.
     if (!status.onDevice && (strcmp(platformSlug, "3ds") == 0 || strcmp(platformSlug, "new-nintendo-3ds") == 0)) {
-        status.installed = looks_installed(fsName);
+        status.installed = looks_installed(romName, fsName);
     }
 
     return status;

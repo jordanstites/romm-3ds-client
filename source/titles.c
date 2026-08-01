@@ -47,8 +47,37 @@ void titles_exit(void) {
     }
 }
 
-// UTF-16LE -> ASCII, good enough for display and for name matching. Non-Latin
-// characters become '?' rather than mangling the string length.
+// Fold a Latin-1 accented character onto its base letter. Without this,
+// "Pokemon" on the server never matches "Pok\u00e9mon" in the SMDH -- which is
+// precisely the title most likely to be looked up.
+static char fold_latin1(u16 c) {
+    if (c >= 0x00C0 && c <= 0x00C5) return 'A';
+    if (c == 0x00C7) return 'C';
+    if (c >= 0x00C8 && c <= 0x00CB) return 'E';
+    if (c >= 0x00CC && c <= 0x00CF) return 'I';
+    if (c == 0x00D1) return 'N';
+    if ((c >= 0x00D2 && c <= 0x00D6) || c == 0x00D8) return 'O';
+    if (c >= 0x00D9 && c <= 0x00DC) return 'U';
+    if (c == 0x00DD) return 'Y';
+    if (c >= 0x00E0 && c <= 0x00E5) return 'a';
+    if (c == 0x00E7) return 'c';
+    if (c >= 0x00E8 && c <= 0x00EB) return 'e';
+    if (c >= 0x00EC && c <= 0x00EF) return 'i';
+    if (c == 0x00F1) return 'n';
+    if ((c >= 0x00F2 && c <= 0x00F6) || c == 0x00F8) return 'o';
+    if (c >= 0x00F9 && c <= 0x00FC) return 'u';
+    if (c == 0x00FD || c == 0x00FF) return 'y';
+
+    // Punctuation that shows up in titles and would otherwise become '?'.
+    if (c == 0x2019 || c == 0x2018) return '\'';
+    if (c == 0x201C || c == 0x201D) return '"';
+    if (c == 0x2013 || c == 0x2014) return '-';
+    if (c == 0x00A0) return ' ';
+
+    return 0;
+}
+
+// UTF-16LE -> ASCII, used for display and for matching against RomM names.
 static void utf16_to_ascii(const u16 *src, int maxChars, char *out, size_t outLen) {
     size_t j = 0;
     for (int i = 0; i < maxChars && src[i] != 0 && j < outLen - 1; i++) {
@@ -58,7 +87,20 @@ static void utf16_to_ascii(const u16 *src, int maxChars, char *out, size_t outLe
             if (j > 0 && out[j - 1] != ' ') out[j++] = ' ';
             continue;
         }
-        out[j++] = (c < 0x80) ? (char)c : '?';
+
+        if (c < 0x80) {
+            out[j++] = (char)c;
+            continue;
+        }
+
+        char folded = fold_latin1(c);
+        // Trademark and copyright signs are noise in a title; drop them rather
+        // than leaving a '?' that would break matching.
+        if (folded) {
+            out[j++] = folded;
+        } else if (c != 0x2122 && c != 0x00AE && c != 0x00A9) {
+            out[j++] = '?';
+        }
     }
 
     // Trim trailing space left by a line break at the end.
@@ -176,7 +218,10 @@ int titles_scan(void) {
     // A cartridge, if one is inserted, reports at most one title.
     scan_media(MEDIATYPE_GAME_CARD);
 
-    log_info("Found %d installed game(s)", titleCount);
+    log_info("Found %d installed title(s), Virtual Console games included", titleCount);
+    for (int i = 0; i < titleCount; i++) {
+        log_info("  %016llX %-11s %s", (unsigned long long)titles[i].titleId, titles[i].productCode, titles[i].name);
+    }
     return titleCount;
 }
 

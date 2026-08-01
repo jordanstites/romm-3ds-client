@@ -140,7 +140,8 @@ void roms_draw(void) {
 
             RomStatus status = {0};
             if (statusConfig && currentPlatformSlug[0]) {
-                status = romstatus_for(statusConfig, romList[i].id, currentPlatformSlug, romList[i].fsName);
+                status = romstatus_for(statusConfig, romList[i].id, currentPlatformSlug, romList[i].name,
+                                       romList[i].fsName);
             }
 
             // Truncate the name rather than letting it run under the badges.

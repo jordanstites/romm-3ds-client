@@ -775,6 +775,10 @@ static void handle_state_platforms(u32 kDown) {
         // list endpoint's SimpleRomSchema carries none.
         romstatus_load_platform(platforms[selectedPlatformIndex].id);
         roms_set_status_context(&config, platforms[selectedPlatformIndex].slug);
+        // Logged because the installed-title check keys off this slug; if the
+        // server uses an unexpected one the badge silently never appears.
+        log_debug("Platform slug '%s' (id %d)", platforms[selectedPlatformIndex].slug,
+                  platforms[selectedPlatformIndex].id);
         Rom *roms = api_get_roms(platforms[selectedPlatformIndex].id, 0, ROM_PAGE_SIZE, &romCount, &romTotal);
         if (roms) {
             log_info("Found %d/%d ROMs", romCount, romTotal);
@@ -1107,12 +1111,7 @@ int main(int argc, char *argv[]) {
 
     // Installed 3DS games. Needed for native save sync, and independent of
     // anything downloaded through this app.
-    if (titles_scan() > 0) {
-        for (int i = 0; i < titles_count(); i++) {
-            const InstalledTitle *t = titles_get(i);
-            log_debug("  %016llX  %-12s  %s", (unsigned long long)t->titleId, t->productCode, t->name);
-        }
-    }
+    titles_scan();
 
     while (aptMainLoop()) {
         hidScanInput();
