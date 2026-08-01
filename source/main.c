@@ -773,6 +773,17 @@ static void handle_state_settings(u32 kDown) {
 
 static void handle_state_platforms(u32 kDown) {
     PlatformsResult result = platforms_update(kDown, &selectedPlatformIndex);
+
+    if (result == PLATFORMS_SET_FOLDER && platforms && selectedPlatformIndex < platformCount) {
+        sound_play_click();
+        snprintf(currentPlatformSlug, sizeof(currentPlatformSlug), "%s", platforms[selectedPlatformIndex].slug);
+        browser_init_rooted(config.romFolder, platforms[selectedPlatformIndex].slug);
+        bottom_set_mode(BOTTOM_MODE_FOLDER_BROWSER);
+        folderPickerReturnState = STATE_PLATFORMS;
+        currentState = STATE_SELECT_ROM_FOLDER;
+        return;
+    }
+
     if (result == PLATFORMS_SELECTED && platforms && selectedPlatformIndex < platformCount) {
         sound_play_click();
         show_loading("Fetching ROMs...");
@@ -883,6 +894,15 @@ static void handle_state_select_folder(u32 kDown, BottomAction bottomAction) {
             // Restore the originating state so get_focused_rom works
             AppState returnState = folderPickerReturnState;
             currentState = returnState;
+
+            // Opened from the platform list, so setting the mapping is the
+            // whole job -- there is no ROM in focus to download.
+            if (returnState == STATE_PLATFORMS) {
+                log_info("Platform '%s' now uses folder '%s'", currentPlatformSlug, folderName);
+                romstatus_invalidate();
+                sync_bottom_after_action(returnState);
+                return;
+            }
 
             if (queueAddPending) {
                 queueAddPending = false;
