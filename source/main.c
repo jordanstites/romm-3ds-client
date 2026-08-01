@@ -429,6 +429,12 @@ static void rescan_library(void) {
 
     for (int p = 0; p < platformCount; p++) {
         const char *slug = platforms[p].slug;
+
+        // Map the platform first if it has never been browsed; otherwise a
+        // library full of hand-copied ROMs is skipped entirely and sync reports
+        // nothing to do.
+        check_platform_folder_valid(slug);
+
         const char *folderName = config_get_platform_folder(slug);
         if (!folderName || folderName[0] == '\0') continue;
 
@@ -775,6 +781,11 @@ static void handle_state_platforms(u32 kDown) {
         int romCount, romTotal;
         // One request per platform gives save counts for every ROM in it; the
         // list endpoint's SimpleRomSchema carries none.
+        // Map <romFolder>/<slug> if it exists but has never been mapped. Until
+        // now this only happened on a download attempt, so a platform whose
+        // ROMs were copied on by hand had no folder and every status check
+        // silently returned nothing.
+        check_platform_folder_valid(platforms[selectedPlatformIndex].slug);
         romstatus_load_platform(platforms[selectedPlatformIndex].id);
         roms_set_status_context(&config, platforms[selectedPlatformIndex].slug);
         // Logged because the installed-title check keys off this slug; if the
