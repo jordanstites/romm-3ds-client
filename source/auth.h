@@ -17,6 +17,7 @@
 #define AUTH_MAX_EXPIRES_LEN 40
 
 #define AUTH_TOKEN_PATH "sdmc:/3ds/romm-3ds-client/token.json"
+#define DEVICE_ID_PATH "sdmc:/3ds/romm-3ds-client/device.id"
 
 typedef struct {
     char accessToken[AUTH_MAX_TOKEN_LEN];
@@ -39,5 +40,46 @@ void auth_clear(AuthToken *token);
 
 // True if a token is present.
 bool auth_has_token(const AuthToken *token);
+
+// ---------------------------------------------------------------------------
+// Device authorization flow (RFC 8628 style, RomM 4.9.0+)
+//
+// The console displays a short code and polls; the user approves in RomM's web
+// UI. This is deliberately not the /api/client-tokens pair-code flow, whose
+// codes expire in 60 seconds -- far too tight for a soft keyboard. Device auth
+// codes last 10 minutes and require no typing on the console.
+// ---------------------------------------------------------------------------
+
+#define AUTH_MAX_USER_CODE_LEN 32
+#define AUTH_MAX_DEVICE_CODE_LEN 128
+#define AUTH_MAX_VERIFY_URL_LEN 320
+
+typedef struct {
+    char userCode[AUTH_MAX_USER_CODE_LEN];      // shown to the user
+    char deviceCode[AUTH_MAX_DEVICE_CODE_LEN];  // secret, sent when polling
+    char verifyUrl[AUTH_MAX_VERIFY_URL_LEN];    // absolute URL for the user
+    int expiresInSeconds;
+    int pollIntervalSeconds;
+} AuthPairing;
+
+typedef enum {
+    AUTH_POLL_PENDING,  // not approved yet, keep polling
+    AUTH_POLL_APPROVED, // token written to the AuthToken out-param
+    AUTH_POLL_DENIED,   // user rejected it
+    AUTH_POLL_EXPIRED,  // code timed out, start over
+    AUTH_POLL_ERROR     // transport or server failure
+} AuthPollResult;
+
+// Ask the server for a pairing code. serverUrl is the configured base URL,
+// needed because RomM returns a *relative* verification path.
+bool auth_begin_pairing(const char *serverUrl, AuthPairing *pairing);
+
+// Poll once. Call no more often than pairing->pollIntervalSeconds.
+AuthPollResult auth_poll_pairing(const char *serverUrl, const AuthPairing *pairing, AuthToken *token);
+
+// True when a response status means "not authenticated". RomM answers 403 for
+// a missing or invalid token, not 401, so checking only 401 would miss the
+// revoked-token case entirely.
+bool auth_status_is_unauthenticated(int statusCode);
 
 #endif // AUTH_H

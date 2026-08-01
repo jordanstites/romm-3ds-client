@@ -51,8 +51,12 @@ void api_set_base_url(const char *url);
 // Passing NULL or "" sends requests unauthenticated.
 void api_set_bearer_token(const char *token);
 
-// Drop the in-memory auth header. Use on 401 alongside auth_clear().
+// Drop the in-memory auth header. Use on 401/403 alongside auth_clear().
 void api_clear_auth(void);
+
+// HTTP status of the most recent request, or 0 if it never reached the server.
+// Pair with auth_status_is_unauthenticated() to decide whether to re-pair.
+int api_last_status(void);
 
 // Fetch platforms from server
 // Returns array of platforms, sets count. Caller must free with api_free_platforms

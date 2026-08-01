@@ -18,6 +18,10 @@
 
 static char baseUrl[256] = "";
 
+// Status of the most recent request, so callers can tell "unauthorized" from
+// "unreachable" without every function growing an out-param.
+static int lastStatus = 0;
+
 static void url_encode(const char *src, char *dst, size_t dstLen) {
     static const char *unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~";
     size_t j = 0;
@@ -59,11 +63,16 @@ void api_clear_auth(void) {
     http_clear_auth();
 }
 
+int api_last_status(void) {
+    return lastStatus;
+}
+
 // Fetch a JSON body. Returns a heap string the caller frees, or NULL on any
 // failure. statusCode is set whenever the server answered at all, so callers
 // can distinguish "unauthorized" from "unreachable".
 static char *fetch_json(const char *url, int *statusCode) {
     *statusCode = 0;
+    lastStatus = 0;
 
     log_debug("GET %s", url);
 
@@ -73,6 +82,7 @@ static char *fetch_json(const char *url, int *statusCode) {
     }
 
     *statusCode = (int)response.statusCode;
+    lastStatus = (int)response.statusCode;
     log_debug("Status: %ld", response.statusCode);
 
     if (response.statusCode != 200) {

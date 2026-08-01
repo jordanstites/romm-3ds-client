@@ -1,8 +1,7 @@
 /*
- * Rommlet - RomM Client for Nintendo 3DS
- * A homebrew app to browse ROMs on a RomM server
+ * RomM 3DS - a RomM client for Nintendo 3DS
  *
- * MIT License
+ * MIT License. Derived from rommlet by Derek Prior.
  */
 
 #include <stdio.h>
@@ -28,6 +27,7 @@
 #include "screens/queuescreen.h"
 #include "screens/search.h"
 #include "screens/about.h"
+#include "screens/pairing.h"
 #include "debuglog.h"
 #include "zip.h"
 
@@ -42,7 +42,8 @@ typedef enum {
     STATE_QUEUE,
     STATE_SEARCH_FORM,
     STATE_SEARCH_RESULTS,
-    STATE_ABOUT
+    STATE_ABOUT,
+    STATE_PAIRING
 } AppState;
 
 static AppState currentState = STATE_LOADING;
@@ -144,9 +145,24 @@ static void fetch_platforms(void) {
     if (platforms) {
         log_info("Found %d platforms", platformCount);
         platforms_set_data(platforms, platformCount);
-    } else {
-        log_error("Failed to fetch platforms");
+        return;
     }
+
+    // One path covers both "never paired" and "token revoked in the web UI":
+    // the server answers 403 either way, so send the user to pairing instead of
+    // showing an empty list. Note RomM uses 403, not 401, for missing auth.
+    if (auth_status_is_unauthenticated(api_last_status())) {
+        log_info("Server rejected our credentials (HTTP %d); pairing required", api_last_status());
+        auth_clear(&authToken);
+        api_clear_auth();
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        nav_clear();
+        pairing_init(&config, &authToken);
+        currentState = STATE_PAIRING;
+        return;
+    }
+
+    log_error("Failed to fetch platforms");
 }
 
 // Build full destination path for a ROM file
@@ -832,6 +848,22 @@ static void handle_state_search_results(u32 kDown) {
     }
 }
 
+static void handle_state_pairing(u32 kDown) {
+    PairingResult result = pairing_update(kDown);
+    if (result == PAIRING_SUCCESS) {
+        sound_play_click();
+        api_set_bearer_token(authToken.accessToken);
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        nav_clear();
+        currentState = STATE_PLATFORMS;
+        fetch_platforms();
+    } else if (result == PAIRING_CANCELLED) {
+        sound_play_pop();
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        currentState = nav_pop();
+    }
+}
+
 static void handle_state_about(u32 kDown) {
     AboutResult result = about_update(kDown);
     if (result == ABOUT_BACK) {
@@ -879,6 +911,9 @@ static void draw_top_screen(void) {
         break;
     case STATE_ABOUT:
         about_draw();
+        break;
+    case STATE_PAIRING:
+        pairing_draw();
         break;
     }
 }
@@ -935,7 +970,7 @@ int main(int argc, char *argv[]) {
     debuglog_init();
 
     log_subscribe(debuglog_subscriber);
-    log_info("Rommlet - RomM Client");
+    log_info("%s v%s", APP_TITLE, APP_VERSION);
 
     while (aptMainLoop()) {
         hidScanInput();
@@ -976,6 +1011,9 @@ int main(int argc, char *argv[]) {
             break;
         case STATE_ABOUT:
             handle_state_about(kDown);
+            break;
+        case STATE_PAIRING:
+            handle_state_pairing(kDown);
             break;
         }
 

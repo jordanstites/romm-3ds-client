@@ -374,11 +374,6 @@ void bottom_draw(void) {
     } else if (currentMode == BOTTOM_MODE_ABOUT) {
         ui_draw_rect(0, 0, SCREEN_BOTTOM_WIDTH, SCREEN_BOTTOM_HEIGHT, UI_COLOR_BG);
         draw_toolbar();
-
-        float qrSize = 150.0f;
-        float qrX = (SCREEN_BOTTOM_WIDTH - qrSize) / 2;
-        float qrY = TOOLBAR_HEIGHT + (SCREEN_BOTTOM_HEIGHT - TOOLBAR_HEIGHT - qrSize) / 2;
-        ui_draw_qr_code(qrX, qrY, qrSize);
     } else {
         draw_toolbar();
     }

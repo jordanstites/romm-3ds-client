@@ -91,9 +91,6 @@ void ui_draw_icon_search(float x, float y, float size, u32 color);
 void ui_draw_icon_home(float x, float y, float size, u32 color);
 void ui_draw_icon_info(float x, float y, float size, u32 color);
 
-// Draw QR code for sponsor link
-void ui_draw_qr_code(float x, float y, float size);
-
 // Draw word-wrapped text within maxWidth. Returns number of lines drawn.
 // skipLines: skip this many lines before drawing (for scrolling)
 // maxLines: maximum lines to draw

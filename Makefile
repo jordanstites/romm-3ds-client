@@ -26,14 +26,15 @@ include $(DEVKITARM)/3ds_rules
 #---------------------------------------------------------------------------------
 # Project Configuration
 #---------------------------------------------------------------------------------
-export APP_TITLE     := Rommlet
-export APP_AUTHOR    := Derek Prior
-export APP_DESC      := RomM Client for 3DS
-export APP_VERSION   := 1.0.0
+export APP_TITLE     := RomM 3DS
+export APP_AUTHOR    := Jordan Stites
+export APP_DESC      := RomM client with save sync
+export APP_VERSION   := 0.1.0
 
-# Unique ID for the CIA (must be valid hex number)
-APP_UNIQUE_ID := 0xB0AAE
-APP_PRODUCT   := CTR-P-RMLT
+# Unique ID for the CIA (must be valid hex number). Deliberately different from
+# rommlet's 0xB0AAE so both can be installed side by side.
+APP_UNIQUE_ID := 0xB0AAF
+APP_PRODUCT   := CTR-P-RM3D
 
 #---------------------------------------------------------------------------------
 # Directories
@@ -55,7 +56,8 @@ CFLAGS        := -g -Wall -O2 -mword-relocations \
                  -ffunction-sections \
                  $(ARCH) $(EXTRA_CFLAGS)
 
-CFLAGS        += $(INCLUDE) -D__3DS__ -DAPP_VERSION=\"$(APP_VERSION)\"
+# APP_TITLE contains a space, so the whole -D must be one shell word.
+CFLAGS        += $(INCLUDE) -D__3DS__ -DAPP_VERSION=\"$(APP_VERSION)\" '-DAPP_TITLE="$(APP_TITLE)"'
 
 CXXFLAGS      := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
