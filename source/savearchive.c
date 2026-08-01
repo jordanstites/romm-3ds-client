@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define ARCHIVE_PATH_MAX 512
 #define COPY_CHUNK 8192
@@ -80,7 +81,21 @@ static bool add_file_to_zip(FS_Archive archive, const char *archivePath, const c
         return false;
     }
 
+    // A zeroed zip_fileinfo writes month 0, day 0, which is not a valid DOS
+    // date -- some tools reject it outright. The archive carries no per-file
+    // timestamp we can read, so stamp with the current time.
     zip_fileinfo info = {0};
+    time_t now = time(NULL);
+    struct tm *local = localtime(&now);
+    if (local) {
+        info.tmz_date.tm_sec = local->tm_sec;
+        info.tmz_date.tm_min = local->tm_min;
+        info.tmz_date.tm_hour = local->tm_hour;
+        info.tmz_date.tm_mday = local->tm_mday;
+        info.tmz_date.tm_mon = local->tm_mon;
+        info.tmz_date.tm_year = local->tm_year + 1900;
+    }
+
     if (zipOpenNewFileInZip(zf, zipName, &info, NULL, 0, NULL, 0, NULL, Z_DEFLATED, Z_DEFAULT_COMPRESSION) != ZIP_OK) {
         FSFILE_Close(file);
         return false;
@@ -245,6 +260,166 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
 }
 
 // ---------------------------------------------------------------------------
+// Import
+// ---------------------------------------------------------------------------
+
+// Create any parent directories the entry needs. The archive will not create
+// them implicitly, and a save tree can legitimately contain subdirectories.
+static void ensure_parent_dirs(FS_Archive archive, const char *entryName) {
+    char path[ARCHIVE_PATH_MAX];
+    snprintf(path, sizeof(path), "/%.*s", (int)sizeof(path) - 2, entryName);
+
+    for (char *p = path + 1; *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        FSUSER_CreateDirectory(archive, fsMakePath(PATH_ASCII, path), 0);
+        *p = '/';
+    }
+}
+
+static bool write_entry(FS_Archive archive, const char *entryName, const u8 *data, u32 size) {
+    char path[ARCHIVE_PATH_MAX];
+    snprintf(path, sizeof(path), "/%.*s", (int)sizeof(path) - 2, entryName);
+
+    ensure_parent_dirs(archive, entryName);
+
+    FS_Path fsPath = fsMakePath(PATH_ASCII, path);
+
+    // Delete first: writing over a longer existing file would leave the tail of
+    // the old save behind, which for a fixed-size save is silent corruption.
+    FSUSER_DeleteFile(archive, fsPath);
+
+    Result res = FSUSER_CreateFile(archive, fsPath, 0, (u64)size);
+    if (R_FAILED(res)) {
+        log_error("Could not create %s in the save archive (0x%08lX)", path, res);
+        return false;
+    }
+
+    Handle file;
+    res = FSUSER_OpenFile(&file, archive, fsPath, FS_OPEN_WRITE, 0);
+    if (R_FAILED(res)) {
+        log_error("Could not open %s for writing (0x%08lX)", path, res);
+        return false;
+    }
+
+    u32 written = 0;
+    res = FSFILE_Write(file, &written, 0, data, size, FS_WRITE_FLUSH);
+    FSFILE_Close(file);
+
+    if (R_FAILED(res) || written != size) {
+        log_error("Short write to %s: %lu of %lu bytes", path, (unsigned long)written, (unsigned long)size);
+        return false;
+    }
+    return true;
+}
+
+static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 uniqueId, const char *zipPath) {
+    unzFile uf = unzOpen(zipPath);
+    if (!uf) {
+        log_error("Could not open %s", zipPath);
+        return SAVEARCHIVE_IO_ERROR;
+    }
+
+    FS_Archive archive;
+    Result res = open_save_archive(titleId, mediaType, &archive);
+    if (R_FAILED(res)) {
+        unzClose(uf);
+        log_error("Could not open the save archive for %016llX (0x%08lX)", (unsigned long long)titleId, res);
+        return SAVEARCHIVE_OPEN_FAILED;
+    }
+
+    bool ok = true;
+    int written = 0;
+
+    if (unzGoToFirstFile(uf) == UNZ_OK) {
+        do {
+            unz_file_info info;
+            char name[256];
+            if (unzGetCurrentFileInfo(uf, &info, name, sizeof(name), NULL, 0, NULL, 0) != UNZ_OK) {
+                ok = false;
+                break;
+            }
+
+            size_t len = strlen(name);
+            if (len == 0 || name[len - 1] == '/') continue;
+
+            // A zip entry escaping the save root would write outside the
+            // archive; refuse rather than sanitising into something surprising.
+            if (name[0] == '/' || strstr(name, "..") != NULL) {
+                log_error("Refusing suspicious entry '%s'", name);
+                ok = false;
+                break;
+            }
+
+            if (unzOpenCurrentFile(uf) != UNZ_OK) {
+                ok = false;
+                break;
+            }
+
+            u32 size = (u32)info.uncompressed_size;
+            u8 *data = malloc(size ? size : 1);
+            if (!data) {
+                unzCloseCurrentFile(uf);
+                ok = false;
+                break;
+            }
+
+            int read = unzReadCurrentFile(uf, data, size);
+            unzCloseCurrentFile(uf);
+
+            if (read < 0 || (u32)read != size) {
+                free(data);
+                ok = false;
+                break;
+            }
+
+            ok = write_entry(archive, name, data, size);
+            free(data);
+            if (!ok) break;
+            written++;
+        } while (unzGoToNextFile(uf) == UNZ_OK);
+    }
+
+    unzClose(uf);
+
+    if (ok && written > 0) {
+        // Mandatory, and in this order. The archive is journalled: without the
+        // commit every write above is silently discarded, with no error.
+        res = FSUSER_ControlArchive(archive, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
+        if (R_FAILED(res)) {
+            log_error("Commit failed (0x%08lX) -- the save was NOT written", res);
+            ok = false;
+        }
+    }
+
+    FSUSER_CloseArchive(archive);
+
+    if (ok && written > 0) {
+        // The secure value is anti-rollback: the game compares its stored value
+        // against the system's and treats a mismatch as a restored backup,
+        // which Pokemon titles report as a corrupted save. Deleting it makes
+        // the system forget the expected value so the game regenerates one.
+        u8 existed = 0;
+        u64 secureValue = ((u64)SECUREVALUE_SLOT_SD << 32) | ((u64)uniqueId << 8);
+        res = FSUSER_ControlSecureSave(SECURESAVE_ACTION_DELETE, &secureValue, sizeof(secureValue), &existed,
+                                       sizeof(existed));
+        if (R_FAILED(res)) {
+            // The data is already committed, so this is a warning rather than a
+            // failure -- but the game may refuse the save until it is cleared.
+            log_error("Could not clear the secure value (0x%08lX); the game may report a corrupted save", res);
+        } else {
+            log_info("Secure value cleared (existed: %u)", existed);
+        }
+    }
+
+    if (!ok) return SAVEARCHIVE_IO_ERROR;
+    if (written == 0) return SAVEARCHIVE_EMPTY;
+
+    log_info("Restored %d file(s) to %016llX", written, (unsigned long long)titleId);
+    return SAVEARCHIVE_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Composite hash
 // ---------------------------------------------------------------------------
 
@@ -370,6 +545,7 @@ static bool zip_content_hash_impl(const char *zipPath, char out[SAVES_HASH_LEN])
 typedef struct {
     u64 titleId;
     FS_MediaType mediaType;
+    u32 uniqueId;
     const char *path;
     char *hashOut;
     SaveArchiveResult result;
@@ -379,6 +555,11 @@ typedef struct {
 static void export_entry(void *arg) {
     ZipJob *job = (ZipJob *)arg;
     job->result = export_impl(job->titleId, job->mediaType, job->path);
+}
+
+static void import_entry(void *arg) {
+    ZipJob *job = (ZipJob *)arg;
+    job->result = import_impl(job->titleId, job->mediaType, job->uniqueId, job->path);
 }
 
 static void hash_entry(void *arg) {
@@ -407,6 +588,16 @@ static bool run_with_big_stack(ThreadFunc entry, ZipJob *job) {
 SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const char *destPath) {
     ZipJob job = {.titleId = titleId, .mediaType = mediaType, .path = destPath, .result = SAVEARCHIVE_IO_ERROR};
     if (!run_with_big_stack(export_entry, &job)) return SAVEARCHIVE_IO_ERROR;
+    return job.result;
+}
+
+SaveArchiveResult savearchive_import(u64 titleId, FS_MediaType mediaType, u32 uniqueId, const char *zipPath) {
+    ZipJob job = {.titleId = titleId,
+                  .mediaType = mediaType,
+                  .uniqueId = uniqueId,
+                  .path = zipPath,
+                  .result = SAVEARCHIVE_IO_ERROR};
+    if (!run_with_big_stack(import_entry, &job)) return SAVEARCHIVE_IO_ERROR;
     return job.result;
 }
 

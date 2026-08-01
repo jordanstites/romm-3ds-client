@@ -21,6 +21,7 @@
 #include "titlemap.h"
 #include "savearchive.h"
 #include "http.h"
+#include "cJSON/cJSON.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -935,6 +936,111 @@ static void upload_native_save(void) {
     http_response_free(&response);
 }
 
+// Download this ROM's save from RomM and write it into the title's save
+// archive.
+//
+// Destructive on the console side, so it takes the console's current save
+// first: that backup is the only way back if the restored save is wrong.
+static void download_native_save(void) {
+    if (!romDetail) return;
+
+    if (!platform_is_native_3ds(currentPlatformSlug)) {
+        log_info("Saves for this platform are files on the SD card; use Sync instead");
+        return;
+    }
+
+    u64 titleId = titlemap_get_title(romDetail->id);
+    if (titleId == 0) {
+        log_error("Link this ROM to an installed title first (X)");
+        return;
+    }
+
+    const InstalledTitle *title = titles_find(titleId);
+    if (!title) {
+        log_error("Linked title %016llX is not installed", (unsigned long long)titleId);
+        return;
+    }
+
+    // Find the newest save RomM holds for this ROM.
+    char listUrl[512];
+    snprintf(listUrl, sizeof(listUrl), "%s/api/saves?rom_id=%d", api_get_base_url(), romDetail->id);
+
+    show_loading("Looking up saves...");
+
+    HttpResponse listing;
+    if (!http_get(listUrl, &listing)) {
+        log_error("Could not reach the server");
+        return;
+    }
+    if (listing.statusCode != 200) {
+        log_error("Save lookup failed: HTTP %ld", listing.statusCode);
+        http_response_free(&listing);
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(listing.data);
+    http_response_free(&listing);
+    if (!root) {
+        log_error("Save list was not valid JSON");
+        return;
+    }
+
+    int saveId = 0;
+    const cJSON *item;
+    cJSON_ArrayForEach(item, root) {
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "id");
+        // The list is newest-last in practice; take the highest id rather than
+        // relying on ordering.
+        if (cJSON_IsNumber(id) && id->valueint > saveId) saveId = id->valueint;
+    }
+    cJSON_Delete(root);
+
+    if (saveId == 0) {
+        log_error("RomM has no save for this game yet");
+        return;
+    }
+
+    // Back up what is on the console before touching it.
+    show_loading("Backing up the current save...");
+    char backupPath[CONFIG_MAX_PATH_LEN + 96];
+    snprintf(backupPath, sizeof(backupPath), "%s/backup-%016llX.zip", CONFIG_DIR, (unsigned long long)titleId);
+
+    SaveArchiveResult backup = savearchive_export(titleId, title->mediaType, backupPath);
+    if (backup == SAVEARCHIVE_OK) {
+        log_info("Existing save backed up to %s", backupPath);
+    } else if (backup == SAVEARCHIVE_NOT_FOUND || backup == SAVEARCHIVE_EMPTY) {
+        // Nothing to lose, so proceeding is safe.
+        log_info("No existing save to back up");
+    } else {
+        log_error("Backup failed (%s); refusing to overwrite the save", savearchive_result_text(backup));
+        return;
+    }
+
+    show_loading("Downloading save...");
+    char zipPath[CONFIG_MAX_PATH_LEN + 96];
+    snprintf(zipPath, sizeof(zipPath), "%s/restore-%016llX.zip", CONFIG_DIR, (unsigned long long)titleId);
+
+    char contentUrl[512];
+    snprintf(contentUrl, sizeof(contentUrl), "%s/api/saves/%d/content?device_id=%s", api_get_base_url(), saveId,
+             authToken.deviceId);
+
+    if (!http_download_to_file(contentUrl, zipPath, NULL)) {
+        log_error("Could not download the save");
+        return;
+    }
+
+    show_loading("Writing to the save archive...");
+    SaveArchiveResult restored = savearchive_import(titleId, title->mediaType, title->uniqueId, zipPath);
+    remove(zipPath);
+
+    if (restored == SAVEARCHIVE_OK) {
+        log_info("Restored save for '%s'. Backup kept at %s", title->name, backupPath);
+    } else {
+        log_error("%s", savearchive_result_text(restored));
+        log_error("The backup is still at %s", backupPath);
+    }
+}
+
 static void handle_state_rom_detail(u32 kDown) {
     RomDetailResult result = romdetail_update(kDown);
 
@@ -958,6 +1064,11 @@ static void handle_state_rom_detail(u32 kDown) {
 
     if (result == ROMDETAIL_UPLOAD_SAVE) {
         upload_native_save();
+        return;
+    }
+
+    if (result == ROMDETAIL_DOWNLOAD_SAVE) {
+        download_native_save();
         return;
     }
 

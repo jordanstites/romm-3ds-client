@@ -12,7 +12,8 @@ typedef enum {
     ROMDETAIL_NONE,
     ROMDETAIL_BACK,
     ROMDETAIL_LINK_TITLE,
-    ROMDETAIL_UPLOAD_SAVE
+    ROMDETAIL_UPLOAD_SAVE,
+    ROMDETAIL_DOWNLOAD_SAVE
 } RomDetailResult;
 
 // Initialize ROM detail screen

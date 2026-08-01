@@ -38,6 +38,12 @@ RomDetailResult romdetail_update(u32 kDown) {
         return ROMDETAIL_UPLOAD_SAVE;
     }
 
+    // Restore is destructive, so it is on its own button rather than sharing
+    // one with upload where a mispress would overwrite a save.
+    if (kDown & KEY_L) {
+        return ROMDETAIL_DOWNLOAD_SAVE;
+    }
+
     // Scroll description if needed
     if (kDown & KEY_DOWN) {
         scrollOffset++;
@@ -93,5 +99,5 @@ void romdetail_draw(void) {
 
     // Help text
     ui_draw_text(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
-                 "B: Back \xC2\xB7 X: Link \xC2\xB7 Y: Upload save", UI_COLOR_TEXT_DIM);
+                 "B: Back \xC2\xB7 X: Link \xC2\xB7 Y: Upload \xC2\xB7 L: Restore", UI_COLOR_TEXT_DIM);
 }

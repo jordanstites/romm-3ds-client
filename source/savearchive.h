@@ -30,6 +30,14 @@ typedef enum {
 // Pack a title's save archive into a zip at destPath.
 SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const char *destPath);
 
+// Replace a title's save archive with the contents of a zip.
+//
+// Destructive and irreversible on the console side, so the caller must have
+// confirmed the title. Writes are committed and the secure value cleared before
+// returning; skipping either leaves the game with a save it will reject.
+// `uniqueId` comes from the installed title and is needed for the secure value.
+SaveArchiveResult savearchive_import(u64 titleId, FS_MediaType mediaType, u32 uniqueId, const char *zipPath);
+
 // RomM hashes a zip as a composite: MD5 of "<name>:<md5>" lines for each entry,
 // sorted by name and joined with newlines -- not MD5 of the archive bytes. A
 // plain file hash would never match and every save would look changed.
