@@ -109,54 +109,78 @@ static bool add_file_to_zip(FS_Archive archive, const char *archivePath, const c
     return ok;
 }
 
-// Walk one directory of the archive, recursing into subdirectories. `prefix` is
-// the path relative to the save root, which is what ends up in the zip.
-static bool add_directory(FS_Archive archive, const char *dirPath, const char *prefix, zipFile zf, int *fileCount,
-                          int depth) {
-    // Save trees are shallow; a deep recursion means something is wrong.
-    if (depth > 8) return true;
+// Per-level working memory for the directory walk. Kept on the heap and reused
+// rather than on the stack: four path buffers plus a directory entry per frame
+// is roughly 2.6KB, and recursing that on a thread whose stack is shared with
+// the graphics stack is how this crashed.
+typedef struct {
+    FS_Archive archive;
+    zipFile zf;
+    int fileCount;
+    char path[ARCHIVE_PATH_MAX];   // path within the archive, built in place
+    char prefix[ARCHIVE_PATH_MAX]; // matching path within the zip
+    FS_DirectoryEntry entry;
+} WalkState;
 
-    FS_Path path = fsMakePath(PATH_ASCII, dirPath);
-    Handle dir;
-    if (R_FAILED(FSUSER_OpenDirectory(&dir, archive, path))) {
+// Walks the directory currently described by state->path / state->prefix,
+// restoring both before returning so the caller's view is unchanged.
+static bool add_directory(WalkState *state, int depth) {
+    // Save trees are shallow. A deeper one means something is wrong, and
+    // recursing further risks the stack rather than reporting it.
+    if (depth > 6) {
+        log_error("Save archive nests deeper than expected; stopping at %s", state->path);
         return false;
     }
 
+    FS_Path fsPath = fsMakePath(PATH_ASCII, state->path);
+    Handle dir;
+    if (R_FAILED(FSUSER_OpenDirectory(&dir, state->archive, fsPath))) {
+        log_error("Could not open directory '%s' in the save archive", state->path);
+        return false;
+    }
+
+    size_t pathLen = strlen(state->path);
+    size_t prefixLen = strlen(state->prefix);
+
     bool ok = true;
-    FS_DirectoryEntry entry;
     u32 read = 1;
 
-    while (R_SUCCEEDED(FSDIR_Read(dir, &read, 1, &entry)) && read > 0) {
+    while (ok && R_SUCCEEDED(FSDIR_Read(dir, &read, 1, &state->entry)) && read > 0) {
         char name[256];
-        entry_name_to_ascii(entry.name, name, sizeof(name));
+        entry_name_to_ascii(state->entry.name, name, sizeof(name));
         if (name[0] == '\0' || strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
 
-        char childPath[ARCHIVE_PATH_MAX];
-        char childPrefix[ARCHIVE_PATH_MAX];
-        snprintf(childPath, sizeof(childPath), "%s%s", dirPath, name);
-        snprintf(childPrefix, sizeof(childPrefix), "%s%s", prefix, name);
-
-        if (entry.attributes & FS_ATTRIBUTE_DIRECTORY) {
-            char nestedPath[ARCHIVE_PATH_MAX];
-            char nestedPrefix[ARCHIVE_PATH_MAX];
-            snprintf(nestedPath, sizeof(nestedPath), "%.*s/", (int)sizeof(nestedPath) - 2, childPath);
-            snprintf(nestedPrefix, sizeof(nestedPrefix), "%.*s/", (int)sizeof(nestedPrefix) - 2, childPrefix);
-            if (!add_directory(archive, nestedPath, nestedPrefix, zf, fileCount, depth + 1)) {
-                ok = false;
-                break;
-            }
-        } else {
-            if (*fileCount >= MAX_ENTRIES) {
-                log_error("Save archive has more than %d files; refusing to continue", MAX_ENTRIES);
-                ok = false;
-                break;
-            }
-            if (!add_file_to_zip(archive, childPath, childPrefix, zf)) {
-                ok = false;
-                break;
-            }
-            (*fileCount)++;
+        size_t nameLen = strlen(name);
+        if (pathLen + nameLen + 2 >= ARCHIVE_PATH_MAX || prefixLen + nameLen + 2 >= ARCHIVE_PATH_MAX) {
+            log_error("Path too long inside the save archive: %s%s", state->path, name);
+            ok = false;
+            break;
         }
+
+        // Append in place, then truncate back for the next sibling.
+        memcpy(state->path + pathLen, name, nameLen + 1);
+        memcpy(state->prefix + prefixLen, name, nameLen + 1);
+
+        bool isDir = (state->entry.attributes & FS_ATTRIBUTE_DIRECTORY) != 0;
+        if (isDir) {
+            state->path[pathLen + nameLen] = '/';
+            state->path[pathLen + nameLen + 1] = '\0';
+            state->prefix[prefixLen + nameLen] = '/';
+            state->prefix[prefixLen + nameLen + 1] = '\0';
+            ok = add_directory(state, depth + 1);
+        } else {
+            if (state->fileCount >= MAX_ENTRIES) {
+                log_error("Save archive holds more than %d files; refusing to continue", MAX_ENTRIES);
+                ok = false;
+            } else if (add_file_to_zip(state->archive, state->path, state->prefix, state->zf)) {
+                state->fileCount++;
+            } else {
+                ok = false;
+            }
+        }
+
+        state->path[pathLen] = '\0';
+        state->prefix[prefixLen] = '\0';
     }
 
     FSDIR_Close(dir);
@@ -180,8 +204,22 @@ SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const 
         return SAVEARCHIVE_IO_ERROR;
     }
 
-    int fileCount = 0;
-    bool ok = add_directory(archive, "/", "", zf, &fileCount, 0);
+    WalkState *state = calloc(1, sizeof(WalkState));
+    if (!state) {
+        zipClose(zf, NULL);
+        FSUSER_CloseArchive(archive);
+        remove(destPath);
+        return SAVEARCHIVE_IO_ERROR;
+    }
+
+    state->archive = archive;
+    state->zf = zf;
+    snprintf(state->path, sizeof(state->path), "/");
+    state->prefix[0] = '\0';
+
+    bool ok = add_directory(state, 0);
+    int fileCount = state->fileCount;
+    free(state);
 
     zipClose(zf, NULL);
     FSUSER_CloseArchive(archive);
