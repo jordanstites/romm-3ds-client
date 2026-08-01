@@ -8,6 +8,7 @@
 
 #include "sync.h"
 #include "../log.h"
+#include "../listnav.h"
 #include "../savesync.h"
 #include "../ui.h"
 #include <stdio.h>
@@ -15,7 +16,7 @@
 
 typedef enum {
     STAGE_SCANNING,
-    STAGE_SUMMARY,  // plan ready, waiting for the user to start
+    STAGE_SUMMARY,  // plan ready, reviewing which entries to run
     STAGE_RUNNING,  // executing non-conflict operations
     STAGE_CONFLICT, // paused on a conflict
     STAGE_FINISHED,
@@ -32,6 +33,31 @@ static int localSaveCount = 0;
 
 static int cursor = 0;         // index into plan.operations while running
 static int conflictChoice = 0; // 0 = keep local, 1 = keep server, 2 = skip
+static ListNav reviewNav;      // selection over the actionable entries
+
+// Indices of operations worth reviewing. no_op entries are excluded: there is
+// nothing to decide about a save that already matches on both sides.
+static int reviewable[SYNC_MAX_OPERATIONS];
+static int reviewableCount = 0;
+
+static void build_review_list(void) {
+    reviewableCount = 0;
+    for (int i = 0; i < plan.operationCount; i++) {
+        if (plan.operations[i].action != SYNC_OP_NO_OP) {
+            reviewable[reviewableCount++] = i;
+        }
+    }
+    listnav_reset(&reviewNav);
+    listnav_set(&reviewNav, reviewableCount, reviewableCount);
+}
+
+static int selected_count(void) {
+    int n = 0;
+    for (int i = 0; i < reviewableCount; i++) {
+        if (plan.operations[reviewable[i]].selected) n++;
+    }
+    return n;
+}
 static int completed = 0;
 static int failed = 0;
 static int skipped = 0;
@@ -45,7 +71,8 @@ static void begin(void) {
     skipped = 0;
     failureDetail[0] = '\0';
 
-    localSaveCount = saves_scan(currentConfig, localSaves, SAVES_MAX);
+    savesync_cleanup(localSaves, localSaveCount);
+    localSaveCount = savesync_collect(currentConfig, localSaves, SAVES_MAX);
 
     if (!savesync_negotiate(currentConfig, currentToken, localSaves, localSaveCount, &plan)) {
         snprintf(failureDetail, sizeof(failureDetail),
@@ -54,6 +81,7 @@ static void begin(void) {
         return;
     }
 
+    build_review_list();
     stage = STAGE_SUMMARY;
 }
 
@@ -69,7 +97,7 @@ static void run_next(void) {
     while (cursor < plan.operationCount) {
         SyncOperation *op = &plan.operations[cursor];
 
-        if (op->action == SYNC_OP_NO_OP) {
+        if (op->action == SYNC_OP_NO_OP || !op->selected) {
             cursor++;
             continue;
         }
@@ -97,6 +125,7 @@ static void run_next(void) {
     }
 
     savesync_complete(currentConfig, &plan);
+    savesync_cleanup(localSaves, localSaveCount);
     stage = STAGE_FINISHED;
 }
 
@@ -106,13 +135,30 @@ SyncScreenResult sync_screen_update(u32 kDown) {
         return SYNC_SCREEN_NONE;
 
     case STAGE_SUMMARY:
-        if (kDown & KEY_A) {
-            if (plan.uploadCount + plan.downloadCount + plan.conflictCount == 0) {
-                stage = STAGE_FINISHED;
-            } else {
-                stage = STAGE_RUNNING;
+        listnav_update(&reviewNav, kDown);
+
+        // A toggles the highlighted entry rather than starting, so a save can
+        // be excluded without abandoning the whole sync.
+        if ((kDown & KEY_A) && reviewNav.selectedIndex < reviewableCount) {
+            SyncOperation *op = &plan.operations[reviewable[reviewNav.selectedIndex]];
+            op->selected = !op->selected;
+        }
+
+        // Y selects or clears everything, so "just this one" is two presses
+        // rather than many.
+        if (kDown & KEY_Y) {
+            bool anySelected = selected_count() > 0;
+            for (int i = 0; i < reviewableCount; i++) {
+                plan.operations[reviewable[i]].selected = !anySelected;
             }
         }
+
+        // Not START: the main loop treats that as quit, so it would close the
+        // app mid-review.
+        if (kDown & KEY_X) {
+            stage = (selected_count() == 0) ? STAGE_FINISHED : STAGE_RUNNING;
+        }
+
         if (kDown & KEY_B) return SYNC_SCREEN_DONE;
         return SYNC_SCREEN_NONE;
 
@@ -166,28 +212,56 @@ void sync_screen_draw(void) {
         ui_draw_loading("Scanning and hashing saves...");
         break;
 
-    case STAGE_SUMMARY:
-        snprintf(line, sizeof(line), "%d local save%s found", localSaveCount, localSaveCount == 1 ? "" : "s");
-        ui_draw_text(UI_PADDING, y, line, UI_COLOR_TEXT_DIM);
-        y += UI_LINE_HEIGHT * 2;
+    case STAGE_SUMMARY: {
+        if (reviewableCount == 0) {
+            snprintf(line, sizeof(line), "%d save%s checked, all up to date", localSaveCount,
+                     localSaveCount == 1 ? "" : "s");
+            draw_centered(y + UI_LINE_HEIGHT * 2, "Nothing to sync", UI_COLOR_TEXT);
+            draw_centered(y + UI_LINE_HEIGHT * 3, line, UI_COLOR_TEXT_DIM);
+            draw_centered(SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT * 2 - UI_PADDING, "B: Back", UI_COLOR_TEXT_DIM);
+            break;
+        }
 
-        snprintf(line, sizeof(line), "Upload to server:    %d", plan.uploadCount);
-        ui_draw_text(UI_PADDING, y, line, UI_COLOR_TEXT);
-        y += UI_LINE_HEIGHT;
-        snprintf(line, sizeof(line), "Download to console: %d", plan.downloadCount);
-        ui_draw_text(UI_PADDING, y, line, UI_COLOR_TEXT);
-        y += UI_LINE_HEIGHT;
-        snprintf(line, sizeof(line), "Needs a decision:    %d", plan.conflictCount);
-        ui_draw_text(UI_PADDING, y, line, plan.conflictCount > 0 ? UI_COLOR_TEXT : UI_COLOR_TEXT_DIM);
-        y += UI_LINE_HEIGHT;
-        snprintf(line, sizeof(line), "Already in sync:     %d", plan.noOpCount);
-        ui_draw_text(UI_PADDING, y, line, UI_COLOR_TEXT_DIM);
+        float itemWidth = SCREEN_TOP_WIDTH - (UI_PADDING * 2);
+        int start, end;
+        listnav_visible_range(&reviewNav, &start, &end);
 
-        draw_centered(SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT * 2 - UI_PADDING,
-                      plan.uploadCount + plan.downloadCount + plan.conflictCount > 0 ? "A: Start  -  B: Cancel"
-                                                                                     : "Nothing to do.  B: Back",
-                      UI_COLOR_TEXT_DIM);
+        for (int i = start; i < end && i < reviewableCount; i++) {
+            const SyncOperation *op = &plan.operations[reviewable[i]];
+            bool highlighted = (i == reviewNav.selectedIndex);
+
+            if (highlighted) {
+                ui_draw_rect(UI_PADDING, y, itemWidth, UI_LINE_HEIGHT, UI_COLOR_SELECTED);
+            }
+
+            // Direction is the thing to read at a glance; the checkbox says
+            // whether it will actually happen.
+            const char *mark = op->selected ? "[x]" : "[ ]";
+            const char *verb = op->action == SYNC_OP_UPLOAD     ? "up"
+                               : op->action == SYNC_OP_DOWNLOAD ? "down"
+                                                                : "conflict";
+            u32 verbColour = op->action == SYNC_OP_CONFLICT ? UI_COLOR_GOLD : UI_COLOR_TEXT_DIM;
+
+            ui_draw_text(UI_PADDING + 4, y + 2, mark, op->selected ? UI_COLOR_SUCCESS : UI_COLOR_TEXT_DIM);
+            ui_draw_text_scaled(UI_PADDING + 34, y + 4, verb, verbColour, 0.45f);
+
+            char name[160];
+            snprintf(name, sizeof(name), "%.140s", op->fileName);
+            ui_draw_text_scaled(UI_PADDING + 76, y + 4, name, UI_COLOR_TEXT, 0.5f);
+
+            y += UI_LINE_HEIGHT;
+        }
+
+        listnav_draw_scroll_indicator(&reviewNav);
+
+        snprintf(line, sizeof(line), "%d of %d selected", selected_count(), reviewableCount);
+        ui_draw_text_scaled(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT * 2 - 2, line, UI_COLOR_TEXT_DIM, 0.5f);
+
+        ui_draw_text_scaled(UI_PADDING, SCREEN_TOP_HEIGHT - UI_LINE_HEIGHT - UI_PADDING,
+                            "A: toggle \xC2\xB7 Y: all/none \xC2\xB7 X: sync \xC2\xB7 B: back", UI_COLOR_TEXT_DIM,
+                            0.5f);
         break;
+    }
 
     case STAGE_RUNNING: {
         const SyncOperation *op = (cursor < plan.operationCount) ? &plan.operations[cursor] : NULL;

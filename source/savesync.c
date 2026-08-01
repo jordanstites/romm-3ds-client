@@ -7,10 +7,14 @@
 #include "cJSON/cJSON.h"
 #include "http.h"
 #include "library.h"
+#include "savearchive.h"
+#include "titlemap.h"
+#include "titles.h"
 #include "log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #define COPY_CHUNK_SIZE 8192
@@ -36,6 +40,106 @@ static void copy_string_field(const cJSON *root, const char *key, char *dst, siz
         snprintf(dst, dstLen, "%s", item->valuestring);
     } else {
         dst[0] = '\0';
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Collecting local saves
+// ---------------------------------------------------------------------------
+
+// Where a native title's archive is staged during a sync.
+static void staged_zip_path(unsigned long long titleId, char *out, size_t outLen) {
+    snprintf(out, outLen, "%s/sync-%016llX.zip", CONFIG_DIR, titleId);
+}
+
+// Add every linked native 3DS title that currently has a save archive.
+//
+// Each one is exported to a zip so it can be hashed and uploaded like any other
+// save. That is real work per title -- a Pokemon save is a few hundred KB -- so
+// only titles the user has explicitly linked are considered, rather than
+// everything installed.
+static int collect_native_saves(const Config *config, LocalSave *out, int maxSaves, int found) {
+    (void)config;
+
+    int linked = titlemap_count();
+    if (linked == 0) return found;
+
+    if (titles_count() == 0) titles_scan();
+
+    for (int i = 0; i < library_count() && found < maxSaves; i++) {
+        const LibraryEntry *entry = library_get(i);
+        if (!entry) continue;
+
+        u64 titleId = titlemap_get_title(entry->romId);
+        if (titleId == 0) continue;
+
+        const InstalledTitle *title = titles_find(titleId);
+        if (!title) {
+            log_info("Linked title %016llX for rom %d is not installed; skipping", (unsigned long long)titleId,
+                     entry->romId);
+            continue;
+        }
+
+        char zipPath[SAVES_MAX_PATH];
+        staged_zip_path((unsigned long long)titleId, zipPath, sizeof(zipPath));
+
+        SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, zipPath);
+        if (exported != SAVEARCHIVE_OK) {
+            // A title that has never been played has nothing to sync, which is
+            // ordinary rather than a failure.
+            log_debug("No save archive for '%s': %s", title->name, savearchive_result_text(exported));
+            continue;
+        }
+
+        LocalSave *save = &out[found];
+        memset(save, 0, sizeof(LocalSave));
+        save->romId = entry->romId;
+        snprintf(save->path, sizeof(save->path), "%s", zipPath);
+        snprintf(save->slot, sizeof(save->slot), "0");
+        save->nativeArchive = true;
+        save->titleId = (unsigned long long)titleId;
+        save->uniqueId = title->uniqueId;
+        save->mediaType = (int)title->mediaType;
+
+        // The name the server sees. Tied to the title rather than the staging
+        // path, which is an implementation detail.
+        snprintf(save->fileName, sizeof(save->fileName), "%016llX.zip", (unsigned long long)titleId);
+
+        struct stat st;
+        if (stat(zipPath, &st) == 0) {
+            save->sizeBytes = (uint64_t)st.st_size;
+            save->modifiedAt = (uint64_t)st.st_mtime;
+        }
+
+        // Zips are hashed compositely by RomM -- MD5 over "<name>:<md5>" lines
+        // rather than over the archive bytes -- so a plain file hash here would
+        // never match and every sync would see a change.
+        if (!savearchive_zip_content_hash(zipPath, save->contentHash)) {
+            log_error("Could not hash the staged archive for '%s'", title->name);
+            remove(zipPath);
+            continue;
+        }
+
+        log_debug("Native save: rom %d '%s' (%llu bytes)", save->romId, title->name,
+                  (unsigned long long)save->sizeBytes);
+        found++;
+    }
+
+    return found;
+}
+
+int savesync_collect(const Config *config, LocalSave *out, int maxSaves) {
+    int found = saves_scan(config, out, maxSaves);
+    found = collect_native_saves(config, out, maxSaves, found);
+    log_info("%d save(s) to compare", found);
+    return found;
+}
+
+void savesync_cleanup(const LocalSave *saves, int saveCount) {
+    for (int i = 0; i < saveCount; i++) {
+        if (saves[i].nativeArchive && saves[i].path[0]) {
+            remove(saves[i].path);
+        }
     }
 }
 
@@ -118,6 +222,7 @@ bool savesync_negotiate(const Config *config, const AuthToken *token, const Loca
 
             SyncOperation *op = &plan->operations[plan->operationCount];
             memset(op, 0, sizeof(SyncOperation));
+            op->selected = true;
 
             char action[32];
             copy_string_field(item, "action", action, sizeof(action));
@@ -141,7 +246,26 @@ bool savesync_negotiate(const Config *config, const AuthToken *token, const Loca
                 if (saves[i].romId == op->romId && strcmp(saves[i].slot, op->slot) == 0) {
                     snprintf(op->localPath, sizeof(op->localPath), "%s", saves[i].path);
                     op->hasLocal = true;
+                    op->nativeArchive = saves[i].nativeArchive;
+                    op->titleId = saves[i].titleId;
+                    op->uniqueId = saves[i].uniqueId;
+                    op->mediaType = saves[i].mediaType;
                     break;
+                }
+            }
+
+            // A download for a linked title the console has no save for yet
+            // still needs the archive details, which no local save carries.
+            if (!op->nativeArchive && op->action != SYNC_OP_UPLOAD) {
+                u64 linkedTitle = titlemap_get_title(op->romId);
+                if (linkedTitle != 0) {
+                    const InstalledTitle *title = titles_find(linkedTitle);
+                    if (title) {
+                        op->nativeArchive = true;
+                        op->titleId = (unsigned long long)linkedTitle;
+                        op->uniqueId = title->uniqueId;
+                        op->mediaType = (int)title->mediaType;
+                    }
                 }
             }
 
@@ -231,8 +355,8 @@ static bool upload_save(const Config *config, const AuthToken *token, SyncOperat
     // rom_id, slot and device_id are query parameters, not form fields; only
     // the file itself is multipart.
     char url[1024];
-    snprintf(url, sizeof(url), "%s/api/saves?rom_id=%d&slot=%s&device_id=%s&overwrite=true", config->serverUrl,
-             op->romId, op->slot, token->deviceId);
+    snprintf(url, sizeof(url), "%s/api/saves?rom_id=%d&slot=%s&emulator=%s&device_id=%s&overwrite=true",
+             config->serverUrl, op->romId, op->slot, op->nativeArchive ? "3ds" : "twilight", token->deviceId);
 
     HttpResponse response;
     if (!http_post_file(url, "saveFile", op->localPath, &response)) {

@@ -43,6 +43,18 @@ typedef struct {
     char platformSlug[CONFIG_MAX_SLUG_LEN];
     bool hasLocal;
 
+    // Copied from the matching LocalSave so execution knows whether to replace
+    // a file or write back a save archive.
+    bool nativeArchive;
+    unsigned long long titleId;
+    unsigned int uniqueId;
+    int mediaType;
+
+    // Cleared to skip this operation. Every entry starts selected, so the
+    // default is still "sync everything", but nothing has to be all-or-nothing
+    // -- a save you do not want touched can be dropped before anything runs.
+    bool selected;
+
     SyncResolution resolution; // only meaningful for SYNC_OP_CONFLICT
     bool done;
     bool failed;
@@ -60,6 +72,15 @@ typedef struct {
     int conflictCount;
     int noOpCount;
 } SyncPlan;
+
+// Gather every save this console holds: files next to ROMs for the emulated
+// platforms, plus the save archives of any native 3DS titles that have been
+// linked to a ROM. Native archives are staged to zips under CONFIG_DIR, which
+// savesync_cleanup() removes once the session is over.
+int savesync_collect(const Config *config, LocalSave *out, int maxSaves);
+
+// Delete staged archive zips left by savesync_collect().
+void savesync_cleanup(const LocalSave *saves, int saveCount);
 
 // Ask the server what needs doing. Returns false on transport or auth failure.
 bool savesync_negotiate(const Config *config, const AuthToken *token, const LocalSave *saves, int saveCount,

@@ -32,6 +32,15 @@ typedef struct {
     char contentHash[SAVES_HASH_LEN];
     uint64_t sizeBytes;
     uint64_t modifiedAt; // unix seconds
+
+    // Native 3DS titles have no save file on the card: the save lives in the
+    // title's archive, and `path` points at a zip staged from it. Restoring one
+    // means writing the archive back rather than replacing a file, so the
+    // difference has to survive into the execute step.
+    bool nativeArchive;
+    unsigned long long titleId;
+    unsigned int uniqueId;
+    int mediaType;
 } LocalSave;
 
 // Scan the SD card for saves belonging to indexed ROMs. Returns how many were
