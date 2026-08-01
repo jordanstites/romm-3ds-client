@@ -128,13 +128,21 @@ export LIBPATHS       := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 export _3DSXDEPS      := $(if $(NO_SMDH),,$(OUTPUT).smdh)
 export _3DSXFLAGS     := $(if $(NO_SMDH),,--smdh=$(OUTPUT).smdh)
 
-.PHONY: all clean cia 3dsx dist format format-check
+.PHONY: all clean cia 3dsx dist format format-check run
 
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(OUTPUT_DIR) $(GFXFILES) meta/icon.png
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 3dsx: all
+
+#---------------------------------------------------------------------------------
+# Wireless deploy to a console sitting at the Homebrew Launcher's "waiting for
+# 3dslink" screen (press Y in HBL). Avoids pulling the SD card on every build.
+# Override the address with: make run ADDR=192.168.1.50
+#---------------------------------------------------------------------------------
+run: all
+	@3dslink $(if $(ADDR),-a $(ADDR),) $(OUTPUT).3dsx
 
 $(BUILD) $(OUTPUT_DIR):
 	@mkdir -p $@
