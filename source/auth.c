@@ -209,14 +209,26 @@ bool auth_begin_pairing(const char *serverUrl, AuthPairing *pairing) {
     copy_string_field(root, "user_code", pairing->userCode, AUTH_MAX_USER_CODE_LEN);
     copy_string_field(root, "device_code", pairing->deviceCode, AUTH_MAX_DEVICE_CODE_LEN);
 
-    // RomM returns a relative path, so build the absolute URL for the user.
+    // Prefer the short path. RomM also returns verification_path_complete with
+    // the code in a query string, but that is long and full of punctuation --
+    // miserable to copy off a 3DS screen onto a phone. The user types the code
+    // into the page instead.
     char relative[AUTH_MAX_VERIFY_URL_LEN];
-    copy_string_field(root, "verification_path_complete", relative, sizeof(relative));
+    copy_string_field(root, "verification_path", relative, sizeof(relative));
     if (relative[0] == '\0') {
-        copy_string_field(root, "verification_path", relative, sizeof(relative));
+        copy_string_field(root, "verification_path_complete", relative, sizeof(relative));
     }
+
     if (relative[0] != '\0') {
-        snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "%s%s", serverUrl, relative);
+        // Drop the scheme for display; browsers infer it, and it buys ~8
+        // characters of screen width for the part that matters.
+        const char *host = serverUrl;
+        if (strncmp(host, "https://", 8) == 0) {
+            host += 8;
+        } else if (strncmp(host, "http://", 7) == 0) {
+            host += 7;
+        }
+        snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "%s%s", host, relative);
     }
 
     const cJSON *expiresIn = cJSON_GetObjectItemCaseSensitive(root, "expires_in");

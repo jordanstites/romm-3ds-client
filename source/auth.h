@@ -55,9 +55,11 @@ bool auth_has_token(const AuthToken *token);
 #define AUTH_MAX_VERIFY_URL_LEN 320
 
 typedef struct {
-    char userCode[AUTH_MAX_USER_CODE_LEN];      // shown to the user
-    char deviceCode[AUTH_MAX_DEVICE_CODE_LEN];  // secret, sent when polling
-    char verifyUrl[AUTH_MAX_VERIFY_URL_LEN];    // absolute URL for the user
+    char userCode[AUTH_MAX_USER_CODE_LEN];     // shown to the user
+    char deviceCode[AUTH_MAX_DEVICE_CODE_LEN]; // secret, sent when polling
+    // Short address the user types by hand, scheme stripped, no query string --
+    // this is what gets read off the 3DS screen, so it has to stay short.
+    char verifyUrl[AUTH_MAX_VERIFY_URL_LEN];
     int expiresInSeconds;
     int pollIntervalSeconds;
 } AuthPairing;

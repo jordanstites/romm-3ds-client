@@ -150,19 +150,20 @@ void pairing_draw(void) {
         break;
 
     case STAGE_WAITING: {
-        draw_centered(52, "Enter this code in RomM:", UI_COLOR_TEXT_DIM);
+        // Two numbered steps: go here, type this. Both strings are meant to be
+        // read off the screen and retyped, so they are kept short and the code
+        // gets the largest type on the screen.
+        ui_draw_text(UI_PADDING, 46, "1.  On your phone or computer, open:", UI_COLOR_TEXT_DIM);
+        draw_centered_scaled(66, pairing.verifyUrl, UI_COLOR_TEXT, 0.7f);
 
-        // The code is the whole point of this screen, so it gets the space.
-        draw_centered_scaled(72, pairing.userCode, UI_COLOR_TEXT, 1.6f);
-
-        draw_centered(126, "Open this address on your computer or phone:", UI_COLOR_TEXT_DIM);
-        draw_centered_scaled(146, pairing.verifyUrl, UI_COLOR_TEXT, 0.5f);
+        ui_draw_text(UI_PADDING, 100, "2.  Enter this code:", UI_COLOR_TEXT_DIM);
+        draw_centered_scaled(120, pairing.userCode, UI_COLOR_TEXT, 1.6f);
 
         char countdown[64];
         int remaining = seconds_remaining();
         snprintf(countdown, sizeof(countdown), "Waiting for approval - expires in %d:%02d", remaining / 60,
                  remaining % 60);
-        draw_centered(176, countdown, UI_COLOR_TEXT_DIM);
+        draw_centered(180, countdown, UI_COLOR_TEXT_DIM);
         break;
     }
 
