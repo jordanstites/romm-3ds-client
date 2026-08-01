@@ -8,17 +8,15 @@
 #include <stdbool.h>
 
 #define CONFIG_MAX_URL_LEN 256
-#define CONFIG_MAX_USER_LEN 64
-#define CONFIG_MAX_PASS_LEN 64
 #define CONFIG_MAX_PATH_LEN 256
 #define CONFIG_MAX_SLUG_LEN 64
-#define CONFIG_PATH "sdmc:/3ds/rommlet/config.ini"
-#define CONFIG_DIR "sdmc:/3ds/rommlet"
+#define CONFIG_PATH "sdmc:/3ds/romm-3ds-client/config.ini"
+#define CONFIG_DIR "sdmc:/3ds/romm-3ds-client"
 
+// No credentials live here. Authentication uses a scoped client token stored
+// separately by the auth module -- see auth.h.
 typedef struct {
     char serverUrl[CONFIG_MAX_URL_LEN];
-    char username[CONFIG_MAX_USER_LEN];
-    char password[CONFIG_MAX_PASS_LEN];
     char romFolder[CONFIG_MAX_PATH_LEN];
 } Config;
 

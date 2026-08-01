@@ -10,7 +10,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define QUEUE_PATH "sdmc:/3ds/rommlet/queue.txt"
+#define QUEUE_PATH CONFIG_DIR "/queue.txt"
 
 static QueueEntry entries[QUEUE_MAX_ENTRIES];
 static int entryCount = 0;

@@ -35,36 +35,6 @@ static void url_encode(const char *src, char *dst, size_t dstLen) {
     dst[j] = '\0';
 }
 
-// Base64 encoding table
-static const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static void base64_encode(const char *input, char *output, size_t outlen) {
-    size_t i, j;
-    size_t len = strlen(input);
-
-    for (i = 0, j = 0; i < len && j < outlen - 4;) {
-        uint32_t octet_a = i < len ? (unsigned char)input[i++] : 0;
-        uint32_t octet_b = i < len ? (unsigned char)input[i++] : 0;
-        uint32_t octet_c = i < len ? (unsigned char)input[i++] : 0;
-        uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
-
-        output[j++] = base64_table[(triple >> 18) & 0x3F];
-        output[j++] = base64_table[(triple >> 12) & 0x3F];
-        output[j++] = base64_table[(triple >> 6) & 0x3F];
-        output[j++] = base64_table[triple & 0x3F];
-    }
-    output[j] = '\0';
-
-    // Add padding based on input length
-    size_t remainder = len % 3;
-    if (remainder == 1 && j >= 2) {
-        output[j - 1] = '=';
-        output[j - 2] = '=';
-    } else if (remainder == 2 && j >= 1) {
-        output[j - 1] = '=';
-    }
-}
-
 void api_init(void) {
     // Nothing to initialize
 }
@@ -82,19 +52,17 @@ void api_set_base_url(const char *url) {
     }
 }
 
-void api_set_auth(const char *username, const char *password) {
-    if (!username || !password || username[0] == '\0') {
+void api_set_bearer_token(const char *token) {
+    if (!token || token[0] == '\0') {
         authHeader[0] = '\0';
         return;
     }
 
-    char credentials[256];
-    snprintf(credentials, sizeof(credentials), "%s:%s", username, password);
+    snprintf(authHeader, sizeof(authHeader), "Bearer %s", token);
+}
 
-    char encoded[256];
-    base64_encode(credentials, encoded, sizeof(encoded));
-
-    snprintf(authHeader, sizeof(authHeader), "Basic %s", encoded);
+void api_clear_auth(void) {
+    memset(authHeader, 0, sizeof(authHeader));
 }
 
 // Configure common headers on an open httpc context

@@ -75,10 +75,6 @@ bool config_load(Config *config) {
             // Main config entries
             if (strcmp(key, "serverUrl") == 0) {
                 snprintf(config->serverUrl, CONFIG_MAX_URL_LEN, "%s", value);
-            } else if (strcmp(key, "username") == 0) {
-                snprintf(config->username, CONFIG_MAX_USER_LEN, "%s", value);
-            } else if (strcmp(key, "password") == 0) {
-                snprintf(config->password, CONFIG_MAX_PASS_LEN, "%s", value);
             } else if (strcmp(key, "romFolder") == 0) {
                 snprintf(config->romFolder, CONFIG_MAX_PATH_LEN, "%s", value);
             }
@@ -99,10 +95,8 @@ static bool save_config_file(const Config *config) {
         return false;
     }
 
-    // Write main config
+    // Write main config. Credentials are deliberately absent -- see auth.h.
     fprintf(f, "serverUrl=%s\n", config->serverUrl);
-    fprintf(f, "username=%s\n", config->username);
-    fprintf(f, "password=%s\n", config->password);
     fprintf(f, "romFolder=%s\n", config->romFolder);
 
     // Write platform mappings section
@@ -126,8 +120,9 @@ bool config_save(const Config *config) {
 }
 
 bool config_is_valid(const Config *config) {
-    return config->serverUrl[0] != '\0' && config->username[0] != '\0' && config->password[0] != '\0' &&
-           config->romFolder[0] != '\0';
+    // Only server reachability settings are checked here. Whether the user is
+    // authenticated is a separate question -- ask auth_has_token().
+    return config->serverUrl[0] != '\0' && config->romFolder[0] != '\0';
 }
 
 const char *config_get_platform_folder(const char *platformSlug) {

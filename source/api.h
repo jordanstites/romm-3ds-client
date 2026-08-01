@@ -46,8 +46,12 @@ void api_exit(void);
 // Set base URL for API requests
 void api_set_base_url(const char *url);
 
-// Set authentication credentials (HTTP Basic Auth)
-void api_set_auth(const char *username, const char *password);
+// Set the RomM client token sent as `Authorization: Bearer ...`.
+// Passing NULL or "" sends requests unauthenticated.
+void api_set_bearer_token(const char *token);
+
+// Drop the in-memory auth header. Use on 401 alongside auth_clear().
+void api_clear_auth(void);
 
 // Fetch platforms from server
 // Returns array of platforms, sets count. Caller must free with api_free_platforms

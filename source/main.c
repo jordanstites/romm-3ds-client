@@ -14,6 +14,7 @@
 #include <citro2d.h>
 #include "config.h"
 #include "api.h"
+#include "auth.h"
 #include "log.h"
 #include "ui.h"
 #include "browser.h"
@@ -73,6 +74,7 @@ static void nav_clear(void) {
 
 // Shared state
 static Config config;
+static AuthToken authToken;
 static Platform *platforms = NULL;
 static int platformCount = 0;
 static int selectedPlatformIndex = 0;
@@ -412,7 +414,6 @@ static void handle_bottom_action(BottomAction action) {
     if (action == BOTTOM_ACTION_SAVE_SETTINGS && currentState == STATE_SETTINGS) {
         sound_play_click();
         config_save(&config);
-        api_set_auth(config.username, config.password);
         api_set_base_url(config.serverUrl);
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
         nav_clear();
@@ -904,11 +905,20 @@ int main(int argc, char *argv[]) {
     mkdir(CONFIG_DIR, 0755);
     api_init();
 
+    // A stored token is independent of config validity: the server URL can be
+    // set while the console is still unpaired, and vice versa.
+    auth_init(&authToken);
+    if (auth_load(&authToken)) {
+        api_set_bearer_token(authToken.accessToken);
+        log_info("Loaded stored client token");
+    } else {
+        log_info("No stored token; pairing required");
+    }
+
     if (!config_load(&config)) {
         needsConfigSetup = true;
     } else {
         api_set_base_url(config.serverUrl);
-        api_set_auth(config.username, config.password);
     }
 
     settings_init(&config);

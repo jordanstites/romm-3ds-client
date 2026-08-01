@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <string.h>
 
-typedef enum { FIELD_SERVER_URL, FIELD_USERNAME, FIELD_PASSWORD, FIELD_ROM_FOLDER, FIELD_COUNT } SettingsField;
+// Credentials are not settings. Pairing happens on its own screen and the
+// resulting token is stored by the auth module, never in config.ini.
+typedef enum { FIELD_SERVER_URL, FIELD_ROM_FOLDER, FIELD_COUNT } SettingsField;
 
 static Config *currentConfig = NULL;
 static int selectedField = FIELD_SERVER_URL;
@@ -70,12 +72,6 @@ SettingsResult settings_update(u32 kDown) {
         case FIELD_SERVER_URL:
             ui_show_keyboard("Server URL", currentConfig->serverUrl, CONFIG_MAX_URL_LEN, false);
             break;
-        case FIELD_USERNAME:
-            ui_show_keyboard("Username", currentConfig->username, CONFIG_MAX_USER_LEN, false);
-            break;
-        case FIELD_PASSWORD:
-            ui_show_keyboard("Password", currentConfig->password, CONFIG_MAX_PASS_LEN, true);
-            break;
         case FIELD_ROM_FOLDER:
             browser_init(currentConfig->romFolder[0] ? currentConfig->romFolder : "sdmc:/");
             browsingFolders = true;
@@ -118,30 +114,6 @@ void settings_draw(void) {
                               currentConfig->serverUrl[0] ? currentConfig->serverUrl : "(not set)",
                               selectedField == FIELD_SERVER_URL);
             break;
-
-        case FIELD_USERNAME:
-            ui_draw_text(UI_PADDING, y, "Username:", UI_COLOR_TEXT_DIM);
-            y += UI_LINE_HEIGHT;
-            ui_draw_list_item(UI_PADDING, y, fieldWidth,
-                              currentConfig->username[0] ? currentConfig->username : "(optional)",
-                              selectedField == FIELD_USERNAME);
-            break;
-
-        case FIELD_PASSWORD: {
-            ui_draw_text(UI_PADDING, y, "Password:", UI_COLOR_TEXT_DIM);
-            y += UI_LINE_HEIGHT;
-            char masked[64];
-            if (currentConfig->password[0]) {
-                size_t len = strlen(currentConfig->password);
-                if (len > sizeof(masked) - 1) len = sizeof(masked) - 1;
-                memset(masked, '*', len);
-                masked[len] = '\0';
-            } else {
-                snprintf(masked, sizeof(masked), "(optional)");
-            }
-            ui_draw_list_item(UI_PADDING, y, fieldWidth, masked, selectedField == FIELD_PASSWORD);
-            break;
-        }
 
         case FIELD_ROM_FOLDER:
             ui_draw_text(UI_PADDING, y, "ROM Folder:", UI_COLOR_TEXT_DIM);
