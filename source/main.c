@@ -33,6 +33,7 @@
 #include "screens/about.h"
 #include "screens/pairing.h"
 #include "screens/sync.h"
+#include "screens/installed.h"
 #include "debuglog.h"
 #include "zip.h"
 
@@ -49,7 +50,8 @@ typedef enum {
     STATE_SEARCH_RESULTS,
     STATE_ABOUT,
     STATE_PAIRING,
-    STATE_SYNC
+    STATE_SYNC,
+    STATE_INSTALLED
 } AppState;
 
 static AppState currentState = STATE_LOADING;
@@ -969,6 +971,14 @@ static void handle_state_search_results(u32 kDown) {
     }
 }
 
+static void handle_state_installed(u32 kDown) {
+    if (installed_update(kDown) == INSTALLED_BACK) {
+        sound_play_pop();
+        bottom_set_mode(BOTTOM_MODE_DEFAULT);
+        currentState = nav_pop();
+    }
+}
+
 static void handle_state_sync(u32 kDown) {
     if (sync_screen_update(kDown) == SYNC_SCREEN_DONE) {
         sound_play_pop();
@@ -995,6 +1005,13 @@ static void handle_state_pairing(u32 kDown) {
 
 static void handle_state_about(u32 kDown) {
     AboutResult result = about_update(kDown);
+    if (result == ABOUT_INSTALLED) {
+        sound_play_click();
+        nav_push(STATE_ABOUT);
+        installed_init();
+        currentState = STATE_INSTALLED;
+        return;
+    }
     if (result == ABOUT_BACK) {
         sound_play_pop();
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
@@ -1046,6 +1063,9 @@ static void draw_top_screen(void) {
         break;
     case STATE_SYNC:
         sync_screen_draw();
+        break;
+    case STATE_INSTALLED:
+        installed_draw();
         break;
     }
 }
@@ -1158,6 +1178,9 @@ int main(int argc, char *argv[]) {
             break;
         case STATE_SYNC:
             handle_state_sync(kDown);
+            break;
+        case STATE_INSTALLED:
+            handle_state_installed(kDown);
             break;
         }
 

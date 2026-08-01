@@ -27,6 +27,9 @@ typedef struct {
     FS_MediaType mediaType;
     char name[TITLES_MAX_NAME];                  // from SMDH, English short title
     char productCode[TITLES_PRODUCT_CODE_LEN];   // e.g. CTR-P-ABCD
+    // False when the SMDH could not be read and `name` is really the product
+    // code. Those titles cannot be matched to a RomM entry by name.
+    bool nameFromSmdh;
 } InstalledTitle;
 
 // Bring up the AM service. Luma3DS grants am:net to .3dsx, so no CIA build is

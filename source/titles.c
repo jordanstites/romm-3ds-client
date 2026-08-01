@@ -123,7 +123,10 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     Handle file;
     Result res =
         FSUSER_OpenFileDirectly(&file, ARCHIVE_SAVEDATA_AND_CONTENT, binArchivePath, binFilePath, FS_OPEN_READ, 0);
-    if (R_FAILED(res)) return false;
+    if (R_FAILED(res)) {
+        log_debug("SMDH open failed for %08lX (0x%08lX)", (unsigned long)lowId, res);
+        return false;
+    }
 
     // Only the header and the English entry are needed, not the icon bitmaps,
     // which are several KB per title.
@@ -139,6 +142,8 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     FSFILE_Close(file);
 
     if (R_FAILED(res) || read < wanted) {
+        log_debug("SMDH read short for %08lX: %lu of %u bytes (0x%08lX)", (unsigned long)lowId, (unsigned long)read,
+                  (unsigned)wanted, res);
         free(buffer);
         return false;
     }
@@ -146,6 +151,7 @@ static bool read_title_name(u32 lowId, u32 highId, u8 media, char *out, size_t o
     u32 magic;
     memcpy(&magic, buffer, sizeof(magic));
     if (magic != SMDH_MAGIC) {
+        log_debug("SMDH magic wrong for %08lX: %08lX", (unsigned long)lowId, (unsigned long)magic);
         free(buffer);
         return false;
     }
@@ -187,7 +193,10 @@ static void add_title(u64 id, FS_MediaType media) {
     if (!read_title_name(lowId, highId, (u8)media, t->name, sizeof(t->name))) {
         // Without a name there is nothing to match against a RomM entry, but
         // the title ID is still useful, so keep it and show the code.
+        t->nameFromSmdh = false;
         snprintf(t->name, sizeof(t->name), "%s", t->productCode[0] ? t->productCode : "(unknown title)");
+    } else {
+        t->nameFromSmdh = true;
     }
 
     titleCount++;
@@ -218,9 +227,13 @@ int titles_scan(void) {
     // A cartridge, if one is inserted, reports at most one title.
     scan_media(MEDIATYPE_GAME_CARD);
 
-    log_info("Found %d installed title(s), Virtual Console games included", titleCount);
+    int named = 0;
     for (int i = 0; i < titleCount; i++) {
-        log_info("  %016llX %-11s %s", (unsigned long long)titles[i].titleId, titles[i].productCode, titles[i].name);
+        if (titles[i].nameFromSmdh) named++;
+    }
+    log_info("Found %d installed title(s), %d named; VC games included", titleCount, named);
+    if (named < titleCount) {
+        log_error("%d title(s) have no readable name; matching will fail for those", titleCount - named);
     }
     return titleCount;
 }
