@@ -3,6 +3,7 @@
  */
 
 #include "debuglog.h"
+#include <stdbool.h>
 #include "ui.h"
 #include <stdio.h>
 #include <string.h>
@@ -156,11 +157,53 @@ void debuglog_draw(void) {
     }
 }
 
-void debuglog_subscriber(LogLevel level, const char *message) {
-    const char *levelName = log_level_name(level);
-    char formatted[LOG_LINE_LENGTH];
-    snprintf(formatted, sizeof(formatted), "[%s] %s", levelName, message);
-    snprintf(logBuffer[logHead], LOG_LINE_LENGTH, "%s", formatted);
+static void push_line(const char *text) {
+    snprintf(logBuffer[logHead], LOG_LINE_LENGTH, "%s", text);
     logHead = (logHead + 1) % LOG_MAX_LINES;
     if (logCount < LOG_MAX_LINES) logCount++;
+}
+
+void debuglog_subscriber(LogLevel level, const char *message) {
+    // Messages used to be truncated to LOG_LINE_LENGTH at store time, so
+    // anything longer was lost before it could be drawn -- and the interesting
+    // part of a diagnostic is usually at the end: the result code, the path,
+    // the reason. Long messages are wrapped across lines instead, with
+    // continuations indented so they read as one entry.
+    char formatted[512];
+    snprintf(formatted, sizeof(formatted), "[%s] %s", log_level_name(level), message);
+
+    const char *cursor = formatted;
+    size_t remaining = strlen(formatted);
+    bool first = true;
+
+    while (remaining > 0) {
+        // Continuations lose two columns to the indent.
+        size_t room = first ? LOG_LINE_LENGTH - 1 : LOG_LINE_LENGTH - 3;
+        size_t take = remaining < room ? remaining : room;
+
+        // Break at a space when there is a sensible one, so words survive.
+        if (take < remaining) {
+            size_t candidate = take;
+            while (candidate > room / 2 && cursor[candidate] != ' ') {
+                candidate--;
+            }
+            if (cursor[candidate] == ' ') take = candidate;
+        }
+
+        char line[LOG_LINE_LENGTH];
+        if (first) {
+            snprintf(line, sizeof(line), "%.*s", (int)take, cursor);
+        } else {
+            snprintf(line, sizeof(line), "  %.*s", (int)take, cursor);
+        }
+        push_line(line);
+
+        cursor += take;
+        remaining -= take;
+        while (remaining > 0 && *cursor == ' ') {
+            cursor++;
+            remaining--;
+        }
+        first = false;
+    }
 }

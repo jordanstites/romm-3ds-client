@@ -365,7 +365,10 @@ static bool upload_save(const Config *config, const AuthToken *token, SyncOperat
     // the file itself is multipart.
     char url[1024];
     snprintf(url, sizeof(url),
-             "%s/api/saves?rom_id=%d&slot=%s&emulator=%s&device_id=%s&overwrite=true&autocleanup=true",
+             // See SAVE_HISTORY_LIMIT: RomM keeps every upload, so this bounds
+             // how many versions of one save are retained.
+             "%s/api/saves?rom_id=%d&slot=%s&emulator=%s&device_id=%s"
+             "&overwrite=true&autocleanup=true&autocleanup_limit=5",
              config->serverUrl, op->romId, op->slot, op->nativeArchive ? "3ds" : "twilight", token->deviceId);
 
     HttpResponse response;

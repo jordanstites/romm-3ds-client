@@ -94,6 +94,9 @@ static Config config;
 static AuthToken authToken;
 static RomFormatInfo romDetailFormat;
 
+// Uploads kept per game before RomM trims the oldest.
+#define SAVE_HISTORY_LIMIT "5"
+
 // Defined further down, but needed by the ROM detail loader above it.
 static bool platform_is_native_3ds(const char *slug);
 static Platform *platforms = NULL;
@@ -985,10 +988,13 @@ static void upload_native_save(void) {
     // api_get_base_url() rather than config.serverUrl: the API layer has
     // already stripped a trailing slash, which would otherwise produce "//api".
     snprintf(url, sizeof(url),
-             // autocleanup bounds the history: RomM timestamps every upload and
-             // keeps them all, so without it repeated syncs accumulate
-             // indefinitely.
-             "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s&overwrite=true&autocleanup=true",
+             // RomM timestamps every upload and keeps them all, so without
+             // autocleanup a game synced regularly accumulates saves without
+             // limit. The limit is set explicitly rather than left at RomM's
+             // default of 10: a few versions are a genuine safety net for data
+             // that cannot be regenerated, but a long history is just clutter.
+             "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s"
+             "&overwrite=true&autocleanup=true&autocleanup_limit=" SAVE_HISTORY_LIMIT,
              api_get_base_url(), romDetail->id, authToken.deviceId);
 
     HttpResponse response;
