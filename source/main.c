@@ -383,28 +383,59 @@ static bool extract_if_zip(const char *destPath) {
 }
 
 // Download the currently focused ROM to the given platform folder
+// Work that has to happen once a background download lands: unpacking a zip and
+// recording the ROM so save sync can map files back to a rom_id. Held here
+// because the worker only moves bytes and knows nothing about either.
+static struct {
+    bool pending;
+    int romId;
+    char slug[CONFIG_MAX_SLUG_LEN];
+    char fsName[256];
+    char destPath[CONFIG_MAX_PATH_LEN + CONFIG_MAX_SLUG_LEN + 256 + 3];
+} pendingDownload;
+
+static void finish_pending_download(bool succeeded) {
+    if (!pendingDownload.pending) return;
+    pendingDownload.pending = false;
+
+    if (!succeeded) {
+        log_error("Download failed");
+        return;
+    }
+
+    log_info("Download complete");
+
+    // Extraction still runs on this thread. It is CPU-bound rather than
+    // transfer-bound and draws its own progress, so it is not the freeze that
+    // mattered.
+    if (extract_if_zip(pendingDownload.destPath)) {
+        library_record(pendingDownload.romId, pendingDownload.slug, pendingDownload.fsName);
+        roms_refresh_status();
+    } else {
+        remove(pendingDownload.destPath);
+    }
+}
+
 static void download_focused_rom(const Rom *rom, const char *slug, const char *folderName) {
     char destPath[CONFIG_MAX_PATH_LEN + CONFIG_MAX_SLUG_LEN + 256 + 3];
     build_rom_path(destPath, sizeof(destPath), folderName, rom->fsName);
-    bottom_set_mode(BOTTOM_MODE_DOWNLOADING);
-    set_download_name(slug, rom->name);
-    downloadQueueText = NULL;
-    progressLabel = "Downloading...";
+
+    pendingDownload.pending = true;
+    pendingDownload.romId = rom->id;
+    snprintf(pendingDownload.slug, sizeof(pendingDownload.slug), "%s", slug);
+    snprintf(pendingDownload.fsName, sizeof(pendingDownload.fsName), "%s", rom->fsName);
+    snprintf(pendingDownload.destPath, sizeof(pendingDownload.destPath), "%s", destPath);
+
     log_info("Downloading to: %s", destPath);
-    if (api_download_rom(rom->id, rom->fsName, destPath, progress_callback)) {
-        log_info("Download complete!");
-        if (extract_if_zip(destPath)) {
-            // Record the mapping so save sync can tie files on this card back
-            // to a rom_id without paging the whole library over the API.
-            library_record(rom->id, slug, rom->fsName);
-            // The file exists now; refresh so the badge reflects that.
-            roms_refresh_status();
-        } else {
-            remove(destPath);
-        }
-    } else {
-        log_error("Download failed!");
+
+    if (!transfer_start_download(rom->id, rom->fsName, destPath, rom->name)) {
+        pendingDownload.pending = false;
+        return;
     }
+
+    nav_push(currentState);
+    bottom_set_mode(BOTTOM_MODE_DEFAULT);
+    currentState = STATE_TRANSFER;
 }
 
 // Download a single queue entry. Returns true on success.
@@ -1402,9 +1433,13 @@ static void handle_state_transfer(u32 kDown) {
         TransferKind kind = status.kind;
         transfer_acknowledge();
 
-        if (succeeded && kind == TRANSFER_KIND_INSTALL) {
-            // A newly installed title changes what is on the console.
-            titles_scan();
+        if (kind == TRANSFER_KIND_INSTALL) {
+            if (succeeded) {
+                // A newly installed title changes what is on the console.
+                titles_scan();
+            }
+        } else {
+            finish_pending_download(succeeded);
         }
         roms_refresh_status();
 
