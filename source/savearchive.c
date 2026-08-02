@@ -16,6 +16,32 @@
 #define COPY_CHUNK 8192
 #define MAX_ENTRIES 256
 
+// Azahar/Citra -- and so Argosy, RomM's Android client -- represent a savedata
+// archive on disk as a "data/<8 hex>" container: the archive's own contents sit
+// inside, alongside a small format descriptor. Argosy zips that folder using
+// its basename as the entry prefix, so a save it uploads looks like
+//
+//   data/00000001/main
+//   data/00000001.metadata
+//
+// while the same save read straight off a console is just "main". Uploading the
+// bare contents produces something no emulator can load, and the differing
+// entry names also change RomM's content hash, so the two clients would never
+// recognise each other's saves even in the same slot.
+//
+// Matching the container makes saves interchangeable in both directions.
+#define CITRA_SAVE_CONTAINER "data/00000001/"
+#define CITRA_SAVE_METADATA "data/00000001.metadata"
+
+// Citra's ArchiveFormatInfo: total_size, number_directories, number_files as
+// little-endian u32, then a duplicate_data byte and three of padding.
+#define CITRA_METADATA_SIZE 16
+
+// Observed in an Azahar-written save. It does not track the archive's real
+// size -- a 441856-byte Pokemon Sun save carries this same value -- so it reads
+// as a fixed default rather than something derivable.
+#define CITRA_METADATA_TOTAL_SIZE 0x00040000
+
 // minizip's zipOpen3 allocates a ~64KB zip64_internal on the stack, and unzip
 // is comparable. The main thread's stack is far smaller than that, so calling
 // either from it faults on the first write past the end. Both run on a
@@ -195,14 +221,23 @@ static u32 result_summary(Result res) {
     return ((u32)res >> 21) & 0x3F;
 }
 
-static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
+// isExtdata, when given, reports which archive kind was opened. Callers need it
+// because only savedata goes inside the Citra container -- there is no verified
+// sample of what Azahar writes for extdata, so guessing at a wrapper for it
+// would risk producing something that silently fails to load.
+static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive, bool *isExtdata) {
+    if (isExtdata) *isExtdata = false;
+
     Result res = open_save_archive_once(titleId, mediaType, archive);
     if (R_SUCCEEDED(res)) return res;
 
     // Savedata is the common case, so it is tried first and extdata is the
     // fallback. A title with both only syncs its savedata for now; splitting
     // them into separate sync targets is a UI question, not a plumbing one.
-    if (R_SUCCEEDED(open_extdata_archive(titleId, archive))) return 0;
+    if (R_SUCCEEDED(open_extdata_archive(titleId, archive))) {
+        if (isExtdata) *isExtdata = true;
+        return 0;
+    }
 
     if (mediaType != MEDIATYPE_GAME_CARD) return res;
 
@@ -229,6 +264,72 @@ static void entry_name_to_ascii(const u16 *src, char *out, size_t outLen) {
         out[j++] = (src[i] < 0x80) ? (char)src[i] : '_';
     }
     out[j] = '\0';
+}
+
+// Fills a zip entry's timestamp from the console clock. A zeroed zip_fileinfo
+// writes month 0, day 0, which is not a valid DOS date, so archives written
+// before the clock is readable list as "01-00-1980".
+static void fill_zip_time(zip_fileinfo *info) {
+    memset(info, 0, sizeof(*info));
+
+    time_t now = time(NULL);
+    struct tm *local = localtime(&now);
+    if (!local) return;
+
+    info->tmz_date.tm_sec = local->tm_sec;
+    info->tmz_date.tm_min = local->tm_min;
+    info->tmz_date.tm_hour = local->tm_hour;
+    info->tmz_date.tm_mday = local->tm_mday;
+    info->tmz_date.tm_mon = local->tm_mon;
+    info->tmz_date.tm_year = local->tm_year + 1900;
+}
+
+// Writes the format descriptor that sits beside the container. Citra reads it
+// to decide the archive is formatted; without it an otherwise correct save is
+// not recognised.
+static bool add_citra_metadata(zipFile zf, int dirCount, int fileCount) {
+    u8 meta[CITRA_METADATA_SIZE];
+    memset(meta, 0, sizeof(meta));
+
+    // Little-endian, matching the console this runs on.
+    u32 fields[3] = {CITRA_METADATA_TOTAL_SIZE, (u32)(dirCount > 0 ? dirCount : 1), (u32)fileCount};
+    memcpy(meta, fields, sizeof(fields));
+    meta[12] = 1; // duplicate_data
+
+    zip_fileinfo info;
+    fill_zip_time(&info);
+
+    if (zipOpenNewFileInZip(zf, CITRA_SAVE_METADATA, &info, NULL, 0, NULL, 0, NULL, Z_DEFLATED,
+                            Z_DEFAULT_COMPRESSION) != ZIP_OK) {
+        log_error("Could not write the save format descriptor");
+        return false;
+    }
+
+    bool ok = zipWriteInFileInZip(zf, meta, sizeof(meta)) == ZIP_OK;
+    zipCloseFileInZip(zf);
+    if (!ok) log_error("Short write on the save format descriptor");
+    return ok;
+}
+
+// Maps a zip entry name onto a path inside the save archive.
+//
+// Saves written by this client are already archive-relative. Saves written by
+// Azahar or Argosy are wrapped in the emulator's container, so the prefix is
+// dropped; the container's format descriptor describes the wrapper rather than
+// the save and has no place inside the archive, so it is reported as skippable
+// by returning NULL.
+static const char *strip_save_container(const char *name) {
+    static const size_t containerLen = sizeof(CITRA_SAVE_CONTAINER) - 1;
+
+    if (strcmp(name, CITRA_SAVE_METADATA) == 0) return NULL;
+
+    if (strncmp(name, CITRA_SAVE_CONTAINER, containerLen) == 0) {
+        const char *inner = name + containerLen;
+        // A container holding nothing but the prefix is not a file to write.
+        return inner[0] != '\0' ? inner : NULL;
+    }
+
+    return name;
 }
 
 // Copy one archive file into the open zip entry.
@@ -304,6 +405,7 @@ typedef struct {
     FS_Archive archive;
     zipFile zf;
     int fileCount;
+    int dirCount;
     char path[ARCHIVE_PATH_MAX];   // path within the archive, built in place
     char prefix[ARCHIVE_PATH_MAX]; // matching path within the zip
     FS_DirectoryEntry entry;
@@ -354,6 +456,7 @@ static bool add_directory(WalkState *state, int depth) {
             state->path[pathLen + nameLen + 1] = '\0';
             state->prefix[prefixLen + nameLen] = '/';
             state->prefix[prefixLen + nameLen + 1] = '\0';
+            state->dirCount++;
             ok = add_directory(state, depth + 1);
         } else {
             if (state->fileCount >= MAX_ENTRIES) {
@@ -376,7 +479,8 @@ static bool add_directory(WalkState *state, int depth) {
 
 static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const char *destPath) {
     FS_Archive archive;
-    Result res = open_save_archive(titleId, mediaType, &archive);
+    bool isExtdata = false;
+    Result res = open_save_archive(titleId, mediaType, &archive, &isExtdata);
     if (R_FAILED(res)) {
         // A title that has never been played has no archive to open, which is
         // an ordinary state rather than a failure worth alarming about. One
@@ -407,11 +511,18 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
     state->archive = archive;
     state->zf = zf;
     snprintf(state->path, sizeof(state->path), "/");
-    state->prefix[0] = '\0';
+    // Savedata goes inside the container an emulator expects; extdata is
+    // written bare until there is a sample to match.
+    snprintf(state->prefix, sizeof(state->prefix), "%s", isExtdata ? "" : CITRA_SAVE_CONTAINER);
 
     bool ok = add_directory(state, 0);
     int fileCount = state->fileCount;
+    int dirCount = state->dirCount;
     free(state);
+
+    if (ok && !isExtdata) {
+        ok = add_citra_metadata(zf, dirCount, fileCount);
+    }
 
     zipClose(zf, NULL);
     FSUSER_CloseArchive(archive);
@@ -432,7 +543,7 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
 
 bool savearchive_has_save(u64 titleId, FS_MediaType mediaType) {
     FS_Archive archive;
-    if (R_FAILED(open_save_archive(titleId, mediaType, &archive))) return false;
+    if (R_FAILED(open_save_archive(titleId, mediaType, &archive, NULL))) return false;
 
     Handle dir;
     bool hasEntry = false;
@@ -515,7 +626,7 @@ static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 un
     }
 
     FS_Archive archive;
-    Result res = open_save_archive(titleId, mediaType, &archive);
+    Result res = open_save_archive(titleId, mediaType, &archive, NULL);
     if (R_FAILED(res)) {
         unzClose(uf);
         log_error("Could not open the save archive for %016llX (0x%08lX)", (unsigned long long)titleId, res);
@@ -545,6 +656,16 @@ static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 un
                 break;
             }
 
+            // Accept either layout. A save written by Azahar or Argosy arrives
+            // inside the emulator's container, whose contents belong at the
+            // archive root; the descriptor beside it describes the container
+            // rather than the save, so it is not restored.
+            const char *entry = strip_save_container(name);
+            if (!entry) {
+                log_debug("Skipping container descriptor '%s'", name);
+                continue;
+            }
+
             if (unzOpenCurrentFile(uf) != UNZ_OK) {
                 ok = false;
                 break;
@@ -567,7 +688,7 @@ static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 un
                 break;
             }
 
-            ok = write_entry(archive, name, data, size);
+            ok = write_entry(archive, entry, data, size);
             free(data);
             if (!ok) break;
             written++;

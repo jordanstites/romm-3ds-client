@@ -17,6 +17,9 @@
 #include <sys/stat.h>
 #include <time.h>
 
+// Matches Argosy's default save channel so the two clients pair on the server.
+#define SAVESYNC_NATIVE_SLOT "autosave"
+
 #define COPY_CHUNK_SIZE 8192
 
 static void iso8601_from_unix(uint64_t seconds, char *out, size_t outLen) {
@@ -95,7 +98,15 @@ static int collect_native_saves(const Config *config, LocalSave *out, int maxSav
         memset(save, 0, sizeof(LocalSave));
         save->romId = entry->romId;
         snprintf(save->path, sizeof(save->path), "%s", zipPath);
-        snprintf(save->slot, sizeof(save->slot), "0");
+        // RomM pairs saves on (rom_id, slot), so this has to match what other
+        // clients use or a console's saves form a lineage of their own that
+        // never conflict-detects against anything else. Argosy, the Android
+        // client, defaults to "autosave".
+        //
+        // Tier 1 saves keep a numeric slot: there it doubles as the TWiLight
+        // Menu++ filename suffix, where slot 1 means ".sav1". Only a native
+        // archive is free to carry a name.
+        snprintf(save->slot, sizeof(save->slot), "%s", SAVESYNC_NATIVE_SLOT);
         save->nativeArchive = true;
         save->titleId = (unsigned long long)titleId;
         save->uniqueId = title->uniqueId;

@@ -32,7 +32,9 @@ typedef struct {
     int romId;
     int saveId; // server-side asset id; 0 when the server has no copy
     char fileName[SAVES_MAX_NAME];
-    char slot[8];
+    // Wide enough for a named channel, not just a digit: a native archive
+    // uses "autosave" to match the other RomM clients.
+    char slot[16];
     char reason[128];
     char serverUpdatedAt[40];
     char serverHash[SAVES_HASH_LEN];

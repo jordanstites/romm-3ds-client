@@ -28,7 +28,7 @@ typedef struct {
     int romId;
     char path[SAVES_MAX_PATH];     // absolute sdmc: path
     char fileName[SAVES_MAX_NAME]; // basename, sent to the server
-    char slot[8];                  // "0", "1", ... never empty; see note below
+    char slot[16];                 // "0", "1", or a name like "autosave"; never empty
     char contentHash[SAVES_HASH_LEN];
     uint64_t sizeBytes;
     uint64_t modifiedAt; // unix seconds
