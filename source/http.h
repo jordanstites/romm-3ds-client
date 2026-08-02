@@ -91,6 +91,10 @@ bool http_download_to_sink(const char *url, HttpSinkFn sink, void *userdata, Htt
 bool http_get_range(const char *url, uint64_t from, uint64_t to, HttpResponse *response);
 
 // Multipart upload of a single file field, for POST /api/saves.
-bool http_post_file(const char *url, const char *fieldName, const char *filePath, HttpResponse *response);
+// Multipart upload of a single file field. `remoteName` is the name the server
+// records; pass NULL to use the local basename. Worth setting when the local
+// path is a staging artefact, so an internal name does not end up displayed.
+bool http_post_file(const char *url, const char *fieldName, const char *filePath, const char *remoteName,
+                    HttpResponse *response);
 
 #endif // HTTP_H

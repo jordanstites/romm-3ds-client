@@ -665,7 +665,8 @@ bool http_get_range(const char *url, uint64_t from, uint64_t to, HttpResponse *r
 // Multipart upload
 // ---------------------------------------------------------------------------
 
-bool http_post_file(const char *url, const char *fieldName, const char *filePath, HttpResponse *response) {
+bool http_post_file(const char *url, const char *fieldName, const char *filePath, const char *remoteName,
+                    HttpResponse *response) {
     memset(response, 0, sizeof(HttpResponse));
 
     CURL *curl = curl_easy_init();
@@ -679,6 +680,14 @@ bool http_post_file(const char *url, const char *fieldName, const char *filePath
         curl_mime_free(mime);
         curl_easy_cleanup(curl);
         return false;
+    }
+
+    // Otherwise curl reports the local basename, which for a staged archive is
+    // an internal name like "sync-<titleId>.zip". The server stores whatever it
+    // is given, so the upload path would leak into the name shown in the web
+    // UI and differ depending on which code path produced it.
+    if (remoteName && remoteName[0]) {
+        curl_mime_filename(part, remoteName);
     }
 
     struct curl_slist *headers = NULL;

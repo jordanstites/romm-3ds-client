@@ -984,11 +984,21 @@ static void upload_native_save(void) {
     char url[1024];
     // api_get_base_url() rather than config.serverUrl: the API layer has
     // already stripped a trailing slash, which would otherwise produce "//api".
-    snprintf(url, sizeof(url), "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s&overwrite=true",
+    snprintf(url, sizeof(url),
+             // autocleanup bounds the history: RomM timestamps every upload and
+             // keeps them all, so without it repeated syncs accumulate
+             // indefinitely.
+             "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s&overwrite=true&autocleanup=true",
              api_get_base_url(), romDetail->id, authToken.deviceId);
 
     HttpResponse response;
-    bool sent = http_post_file(url, "saveFile", zipPath, &response);
+    // Named after the title rather than the staging file. RomM appends its own
+    // timestamp and keeps each upload as a separate save, so this controls how
+    // the entry reads in the web UI rather than whether it replaces anything.
+    char remoteName[64];
+    snprintf(remoteName, sizeof(remoteName), "%016llX.zip", (unsigned long long)titleId);
+
+    bool sent = http_post_file(url, "saveFile", zipPath, remoteName, &response);
 
     // The zip is a staging artefact, not something to leave on the card.
     remove(zipPath);

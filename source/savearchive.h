@@ -30,6 +30,11 @@ typedef enum {
 // Pack a title's save archive into a zip at destPath.
 SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const char *destPath);
 
+// Whether a title currently has save data. Opens the archive and looks for one
+// entry rather than exporting it, so it is cheap enough to call while drawing a
+// list. No zip work, so it needs no oversized stack.
+bool savearchive_has_save(u64 titleId, FS_MediaType mediaType);
+
 // Replace a title's save archive with the contents of a zip.
 //
 // Destructive and irreversible on the console side, so the caller must have

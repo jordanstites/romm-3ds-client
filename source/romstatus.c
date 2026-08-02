@@ -9,6 +9,7 @@
 #include "log.h"
 #include "saves.h"
 #include "titlemap.h"
+#include "savearchive.h"
 #include "titles.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -196,7 +197,14 @@ RomStatus romstatus_for(const Config *config, int romId, const char *platformSlu
         u64 linked = titlemap_get_title(romId);
         if (linked != 0) {
             status.linked = true;
-            status.installed = (titles_find(linked) != NULL);
+            const InstalledTitle *title = titles_find(linked);
+            status.installed = (title != NULL);
+
+            // A native save lives in the title's archive, not as a file beside
+            // a ROM, so the file scan above always reports zero for these.
+            if (title && savearchive_has_save(linked, title->mediaType)) {
+                status.localSaves++;
+            }
         } else {
             status.installed = looks_installed(romName, fsName);
         }

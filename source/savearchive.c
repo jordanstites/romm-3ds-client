@@ -213,8 +213,11 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
     Result res = open_save_archive(titleId, mediaType, &archive);
     if (R_FAILED(res)) {
         // A title that has never been played has no archive to open, which is
-        // an ordinary state rather than a failure worth alarming about.
-        log_info("No save archive for %016llX (0x%08lX)", (unsigned long long)titleId, res);
+        // an ordinary state rather than a failure worth alarming about. The
+        // media type is logged because a cartridge title uses a different one
+        // and getting it wrong looks identical to having no save.
+        log_info("No save archive for %016llX on media %u (0x%08lX)", (unsigned long long)titleId, (unsigned)mediaType,
+                 res);
         return SAVEARCHIVE_NOT_FOUND;
     }
 
@@ -257,6 +260,29 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
 
     log_info("Exported %d file(s) from %016llX", fileCount, (unsigned long long)titleId);
     return SAVEARCHIVE_OK;
+}
+
+bool savearchive_has_save(u64 titleId, FS_MediaType mediaType) {
+    FS_Archive archive;
+    if (R_FAILED(open_save_archive(titleId, mediaType, &archive))) return false;
+
+    Handle dir;
+    bool hasEntry = false;
+    if (R_SUCCEEDED(FSUSER_OpenDirectory(&dir, archive, fsMakePath(PATH_ASCII, "/")))) {
+        FS_DirectoryEntry entry;
+        u32 read = 0;
+        // An archive can exist while holding nothing, which is not a save.
+        while (R_SUCCEEDED(FSDIR_Read(dir, &read, 1, &entry)) && read > 0) {
+            if (!(entry.attributes & FS_ATTRIBUTE_DIRECTORY)) {
+                hasEntry = true;
+                break;
+            }
+        }
+        FSDIR_Close(dir);
+    }
+
+    FSUSER_CloseArchive(archive);
+    return hasEntry;
 }
 
 // ---------------------------------------------------------------------------

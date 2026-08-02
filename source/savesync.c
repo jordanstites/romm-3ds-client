@@ -364,11 +364,15 @@ static bool upload_save(const Config *config, const AuthToken *token, SyncOperat
     // rom_id, slot and device_id are query parameters, not form fields; only
     // the file itself is multipart.
     char url[1024];
-    snprintf(url, sizeof(url), "%s/api/saves?rom_id=%d&slot=%s&emulator=%s&device_id=%s&overwrite=true",
+    snprintf(url, sizeof(url),
+             "%s/api/saves?rom_id=%d&slot=%s&emulator=%s&device_id=%s&overwrite=true&autocleanup=true",
              config->serverUrl, op->romId, op->slot, op->nativeArchive ? "3ds" : "twilight", token->deviceId);
 
     HttpResponse response;
-    if (!http_post_file(url, "saveFile", op->localPath, &response)) {
+    // op->fileName is the meaningful name -- the title for an archive, the save's
+    // own name for a file -- while localPath may be a staging artefact whose
+    // name would otherwise be what the web UI displays.
+    if (!http_post_file(url, "saveFile", op->localPath, op->fileName, &response)) {
         log_error("Upload of %s failed at the transport", op->fileName);
         return false;
     }
