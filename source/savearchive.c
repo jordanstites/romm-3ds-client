@@ -72,7 +72,7 @@ static void log_card_state(void) {
     }
 }
 
-static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
+static Result open_save_archive_once(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
     u32 lowId = (u32)(titleId & 0xFFFFFFFF);
     u32 highId = (u32)(titleId >> 32);
 
@@ -83,6 +83,33 @@ static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive 
     FS_Path binaryPath = {PATH_BINARY, sizeof(path), path};
 
     return FSUSER_OpenArchive(archive, ARCHIVE_USER_SAVEDATA, binaryPath);
+}
+
+// Summary 9 is "canceled": the operation was abandoned rather than refused or
+// found missing.
+#define RESULT_SUMMARY_CANCELED 9
+
+static u32 result_summary(Result res) {
+    return ((u32)res >> 21) & 0x3F;
+}
+
+static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
+    Result res = open_save_archive_once(titleId, mediaType, archive);
+    if (R_SUCCEEDED(res) || mediaType != MEDIATYPE_GAME_CARD) return res;
+
+    // A card inserted after the console booted leaves this process holding a
+    // stale view of the slot, and FS reports that as "canceled" rather than as
+    // a missing archive or a refusal. Powering the slot on makes the card
+    // current; retrying then usually succeeds. Only worth doing for that
+    // specific summary -- a genuinely absent save should fail immediately
+    // rather than be retried.
+    if (result_summary(res) != RESULT_SUMMARY_CANCELED) return res;
+
+    bool powered = false;
+    if (R_FAILED(FSUSER_CardSlotPowerOn(&powered))) return res;
+
+    log_info("Card slot re-mounted; retrying the save archive");
+    return open_save_archive_once(titleId, mediaType, archive);
 }
 
 // UTF-16 -> ASCII for entry names. 3DS save trees use plain ASCII names in
