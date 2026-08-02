@@ -412,6 +412,29 @@ bool http_post_json(const char *url, const char *jsonBody, HttpResponse *respons
     return ok;
 }
 
+bool http_put_json(const char *url, const char *jsonBody, HttpResponse *response) {
+    memset(response, 0, sizeof(HttpResponse));
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return false;
+
+    struct curl_slist *headers = NULL;
+    apply_common_options(curl, url, &headers);
+    headers = curl_slist_append(headers, "Accept: application/json");
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    // CUSTOMREQUEST rather than CURLOPT_PUT, which expects a read callback.
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody ? jsonBody : "");
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(jsonBody ? jsonBody : ""));
+
+    bool ok = perform_with_body(curl, headers, url, response);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return ok;
+}
+
 // ---------------------------------------------------------------------------
 // Streaming download
 // ---------------------------------------------------------------------------

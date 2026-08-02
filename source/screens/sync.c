@@ -72,6 +72,11 @@ static void begin(void) {
     failureDetail[0] = '\0';
 
     savesync_cleanup(localSaves, localSaveCount);
+
+    // Declares how this console syncs. Harmless to repeat, and the device
+    // record created by pairing does not carry it.
+    savesync_register_device(currentConfig, currentToken);
+
     localSaveCount = savesync_collect(currentConfig, localSaves, SAVES_MAX);
 
     if (!savesync_negotiate(currentConfig, currentToken, localSaves, localSaveCount, &plan)) {

@@ -73,6 +73,7 @@ void http_response_free(HttpResponse *response);
 // NOT a transport failure -- check response->statusCode.
 bool http_get(const char *url, HttpResponse *response);
 bool http_post_json(const char *url, const char *jsonBody, HttpResponse *response);
+bool http_put_json(const char *url, const char *jsonBody, HttpResponse *response);
 
 // Streams to destPath, never buffering the body in RAM. Deletes a partial file
 // on failure or cancellation so a stale truncated ROM is not left behind.

@@ -128,6 +128,36 @@ static int collect_native_saves(const Config *config, LocalSave *out, int maxSav
     return found;
 }
 
+void savesync_register_device(const Config *config, const AuthToken *token) {
+    if (token->deviceId[0] == '\0') return;
+
+    // sync_mode "api" rather than "file_transfer": saves move over the HTTP API
+    // here, not by copying files to a mounted device.
+    char body[384];
+    snprintf(body, sizeof(body),
+             "{\"name\":\"Nintendo 3DS\",\"platform\":\"3ds\","
+             "\"client\":\"romm-3ds-client\",\"client_version\":\"" APP_VERSION "\","
+             "\"sync_mode\":\"api\",\"sync_enabled\":true}");
+
+    char url[512];
+    snprintf(url, sizeof(url), "%s/api/devices/%s", config->serverUrl, token->deviceId);
+
+    HttpResponse response;
+    if (!http_put_json(url, body, &response)) {
+        log_debug("Could not update the device record");
+        return;
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+        log_debug("Device registered for API sync");
+    } else {
+        // Sync still works without this; the server just has less context about
+        // what kind of client this is.
+        log_debug("Device update returned HTTP %ld", response.statusCode);
+    }
+    http_response_free(&response);
+}
+
 int savesync_collect(const Config *config, LocalSave *out, int maxSaves) {
     int found = saves_scan(config, out, maxSaves);
     found = collect_native_saves(config, out, maxSaves, found);

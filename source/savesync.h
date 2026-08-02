@@ -77,6 +77,12 @@ typedef struct {
 // platforms, plus the save archives of any native 3DS titles that have been
 // linked to a ROM. Native archives are staged to zips under CONFIG_DIR, which
 // savesync_cleanup() removes once the session is over.
+// Declare this console's sync intent to the server: an API client that both
+// pushes and pulls. The device record itself is created by pairing, but that
+// leaves sync_mode unset, and the protocol expects a device to say how it
+// syncs. Idempotent, and a failure is not fatal.
+void savesync_register_device(const Config *config, const AuthToken *token);
+
 int savesync_collect(const Config *config, LocalSave *out, int maxSaves);
 
 // Delete staged archive zips left by savesync_collect().
