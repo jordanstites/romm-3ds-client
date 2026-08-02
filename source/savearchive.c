@@ -72,30 +72,58 @@ static void log_card_state(void) {
     }
 }
 
-static Result open_save_archive_once(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
-    u32 lowId = (u32)(titleId & 0xFFFFFFFF);
-    u32 highId = (u32)(titleId >> 32);
+// Ways a save archive can be addressed. A cartridge is the awkward case: it is
+// unclear from the API alone which of these it answers to, and the errors seen
+// so far -- canceled, then internal -- say the request could not be serviced as
+// asked rather than that the save is missing or protected. So each is tried and
+// each result is reported, rather than assuming one and reporting the last
+// failure.
+typedef struct {
+    const char *name;
+    FS_ArchiveID archiveId;
+    bool useTitlePath; // false means an empty path
+} ArchiveAttempt;
 
-    // A cartridge has its own archive. USER_SAVEDATA addresses a title by id on
-    // a given media, which is how an installed title is reached, but a card's
-    // save is not stored that way -- GAMECARD_SAVEDATA refers to whatever card
-    // is currently inserted, so it takes no title and an empty path.
-    if (mediaType == MEDIATYPE_GAME_CARD) {
-        Result res = FSUSER_OpenArchive(archive, ARCHIVE_GAMECARD_SAVEDATA, fsMakePath(PATH_EMPTY, ""));
-        if (R_SUCCEEDED(res)) return res;
-
-        log_debug("Gamecard archive refused (%s); trying it as a titled save", log_result_text(res));
-        // Fall through: a card-installed title may still answer to the normal
-        // form, and failing both is more informative than failing one.
+static Result try_archive(const ArchiveAttempt *attempt, u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
+    if (!attempt->useTitlePath) {
+        return FSUSER_OpenArchive(archive, attempt->archiveId, fsMakePath(PATH_EMPTY, ""));
     }
 
-    // ARCHIVE_SAVEDATA resolves the save from the calling process's own
-    // exheader, so it can only ever open our own. USER_SAVEDATA takes an
-    // explicit title, which is the whole point here.
-    u32 path[3] = {(u32)mediaType, lowId, highId};
+    u32 path[3] = {(u32)mediaType, (u32)(titleId & 0xFFFFFFFF), (u32)(titleId >> 32)};
     FS_Path binaryPath = {PATH_BINARY, sizeof(path), path};
+    return FSUSER_OpenArchive(archive, attempt->archiveId, binaryPath);
+}
 
-    return FSUSER_OpenArchive(archive, ARCHIVE_USER_SAVEDATA, binaryPath);
+static Result open_save_archive_once(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
+    // An installed title is addressed by id on its media; this is the form
+    // Checkpoint uses for everything that is not a system title, and it is
+    // known to work for SD-installed titles here.
+    static const ArchiveAttempt installedForm = {"user savedata", ARCHIVE_USER_SAVEDATA, true};
+
+    if (mediaType != MEDIATYPE_GAME_CARD) {
+        return try_archive(&installedForm, titleId, mediaType, archive);
+    }
+
+    static const ArchiveAttempt cartForms[] = {
+        {"user savedata", ARCHIVE_USER_SAVEDATA, true},
+        {"gamecard savedata", ARCHIVE_GAMECARD_SAVEDATA, false},
+        {"gamecard savedata (titled)", ARCHIVE_GAMECARD_SAVEDATA, true},
+        {"savedata", ARCHIVE_SAVEDATA, false},
+    };
+
+    Result last = 0;
+    for (size_t i = 0; i < sizeof(cartForms) / sizeof(cartForms[0]); i++) {
+        last = try_archive(&cartForms[i], titleId, mediaType, archive);
+        if (R_SUCCEEDED(last)) {
+            log_info("Cartridge save opened via %s", cartForms[i].name);
+            return last;
+        }
+        // At info, not debug: a failure nobody can see is what made this take
+        // several attempts to narrow.
+        log_info("  %s: %s", cartForms[i].name, log_result_text(last));
+    }
+
+    return last;
 }
 
 // Summary 9 is "canceled": the operation was abandoned rather than refused or

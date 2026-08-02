@@ -166,6 +166,20 @@ AccessControlInfo:
     - CategoryHomeMenu
     - SeedDB
 
+  # ARM9 access control -- a different exheader field from FileSystemAccess
+  # above. Luma's 3dsx loader grants the latter in full but not this, which
+  # would explain why a .3dsx cannot reach a cartridge's save regardless of
+  # which archive it asks for. Only a CIA build carries these, so a CIA is the
+  # way to test that.
+  IoAccessControl:
+    - FsMountNand
+    - FsMountNandRoWrite
+    - FsMountTwln
+    - FsMountWnand
+    - FsMountCardSpi
+    - UseSdif3
+    - UseCardSpi
+
 SystemControlInfo:
   SaveDataSize        : 0KB
   RemasterVersion     : 0
