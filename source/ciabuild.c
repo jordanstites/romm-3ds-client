@@ -152,7 +152,14 @@ size_t ciabuild_write_metadata(const CiaSpec *spec, u8 *out, size_t outSize) {
         u8 *chunk = chunks + (size_t)i * TMD_CHUNK_SIZE;
         write_be32(chunk + 0x00, (u32)spec->contents[i].index); // content id
         write_be16(chunk + 0x04, spec->contents[i].index);      // content index
-        write_be16(chunk + 0x06, 0x0001);                       // type: encrypted=0, main content
+
+        // Type flags, and 0 is the right answer. Bit 0 means the content is
+        // encrypted with the ticket's title key; setting it would make AM
+        // decrypt content that was never encrypted, installing garbage. Checked
+        // against a CIA makerom built from unencrypted content, which also
+        // writes 0. Any NCCH-level encryption is a layer below this and is left
+        // exactly as it was found.
+        write_be16(chunk + 0x06, 0x0000);
         write_be64(chunk + 0x08, spec->contents[i].size);
         memcpy(chunk + 0x10, spec->contents[i].hash, CIA_SHA256_SIZE);
     }
