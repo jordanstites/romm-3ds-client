@@ -1013,8 +1013,8 @@ static void upload_native_save(void) {
     // Named after the title rather than the staging file. RomM appends its own
     // timestamp and keeps each upload as a separate save, so this controls how
     // the entry reads in the web UI rather than whether it replaces anything.
-    char remoteName[64];
-    snprintf(remoteName, sizeof(remoteName), "%016llX-%s.zip", (unsigned long long)titleId, slotName);
+    char remoteName[SAVES_MAX_NAME];
+    savesync_save_name(romDetail->fsName, slotName, remoteName, sizeof(remoteName));
 
     bool sent = http_post_file(url, "saveFile", zipPath, remoteName, &response);
 

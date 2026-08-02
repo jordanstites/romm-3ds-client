@@ -115,10 +115,10 @@ static int collect_native_saves(const Config *config, LocalSave *out, int maxSav
             save->mediaType = (int)title->mediaType;
             save->extdata = (kinds[k].kind == SAVEARCHIVE_KIND_EXTDATA);
 
-            // The name the server sees. Tied to the title and kind rather than
-            // the staging path, which is an implementation detail.
-            snprintf(save->fileName, sizeof(save->fileName), "%016llX-%s.zip", (unsigned long long)titleId,
-                     kinds[k].slot);
+            // The name the server sees, taken from the ROM so the entry is
+            // readable in the web UI. The staging path is an implementation
+            // detail and does not belong in it.
+            savesync_save_name(entry->fsName, kinds[k].slot, save->fileName, sizeof(save->fileName));
 
             struct stat st;
             if (stat(zipPath, &st) == 0) {
@@ -142,6 +142,22 @@ static int collect_native_saves(const Config *config, LocalSave *out, int maxSav
     }
 
     return found;
+}
+
+void savesync_save_name(const char *romFsName, const char *slot, char *out, size_t outLen) {
+    char base[SAVES_MAX_NAME];
+    snprintf(base, sizeof(base), "%s", (romFsName && romFsName[0]) ? romFsName : "save");
+
+    // Drop the ROM's extension, not any earlier dot: names carry regions and
+    // language lists in parentheses and often a dot inside them.
+    char *dot = strrchr(base, '.');
+    if (dot && dot != base) *dot = '\0';
+
+    if (slot && strcmp(slot, SAVESYNC_SLOT_EXTDATA) == 0) {
+        snprintf(out, outLen, "%s extdata.zip", base);
+    } else {
+        snprintf(out, outLen, "%s.zip", base);
+    }
 }
 
 void savesync_register_device(const Config *config, const AuthToken *token) {

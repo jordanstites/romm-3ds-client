@@ -38,6 +38,17 @@ typedef enum {
 #define SAVESYNC_SLOT_SAVEDATA "3ds"
 #define SAVESYNC_SLOT_EXTDATA "extdata"
 
+// Builds the name a save is uploaded under. RomM appends its own " [timestamp]"
+// and keeps each upload as a separate record, so this controls how the entry
+// reads in the web UI rather than whether it replaces anything.
+//
+// Named after the ROM rather than the title ID: "Pokemon Sun (USA)" is what the
+// library shows and what Argosy uploads under, where "0004000000164800" means
+// nothing without a lookup. The slot already distinguishes the two archives in
+// the UI, so only extdata is marked, and only to keep downloads of both from
+// colliding on one filename.
+void savesync_save_name(const char *romFsName, const char *slot, char *out, size_t outLen);
+
 typedef struct {
     SyncAction action;
     int romId;
