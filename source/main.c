@@ -20,6 +20,7 @@
 #include "romstatus.h"
 #include "titlemap.h"
 #include "savearchive.h"
+#include "savesync.h"
 #include "install.h"
 #include "romformat.h"
 #include "transfer.h"
@@ -975,6 +976,7 @@ static void upload_native_save(void) {
     snprintf(zipPath, sizeof(zipPath), "%s/save-%016llX.zip", CONFIG_DIR, (unsigned long long)titleId);
 
     SaveArchiveKind kind = savearchive_primary_kind(titleId, title->mediaType);
+    const char *slotName = (kind == SAVEARCHIVE_KIND_EXTDATA) ? SAVESYNC_SLOT_EXTDATA : SAVESYNC_SLOT_SAVEDATA;
     SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, kind, zipPath);
     if (exported != SAVEARCHIVE_OK) {
         ui_toast_error("%s", savearchive_result_text(exported));
@@ -999,16 +1001,20 @@ static void upload_native_save(void) {
              // is explicit rather than RomM's default of 10 -- a few versions
              // are a real safety net for data that cannot be regenerated,
              // a long history is just clutter.
-             "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s"
+             // The slot names which of the title's two archives this is, and
+             // has to match what sync uses -- otherwise a save uploaded by hand
+             // and the same save uploaded by sync land in different slots and
+             // never pair.
+             "%s/api/saves?rom_id=%d&slot=%s&emulator=3ds&device_id=%s"
              "&autocleanup=true&autocleanup_limit=" SAVE_HISTORY_LIMIT,
-             api_get_base_url(), romDetail->id, authToken.deviceId);
+             api_get_base_url(), romDetail->id, slotName, authToken.deviceId);
 
     HttpResponse response;
     // Named after the title rather than the staging file. RomM appends its own
     // timestamp and keeps each upload as a separate save, so this controls how
     // the entry reads in the web UI rather than whether it replaces anything.
     char remoteName[64];
-    snprintf(remoteName, sizeof(remoteName), "%016llX.zip", (unsigned long long)titleId);
+    snprintf(remoteName, sizeof(remoteName), "%016llX-%s.zip", (unsigned long long)titleId, slotName);
 
     bool sent = http_post_file(url, "saveFile", zipPath, remoteName, &response);
 

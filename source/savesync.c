@@ -17,17 +17,6 @@
 #include <sys/stat.h>
 #include <time.h>
 
-// A title's two save archives are independent units, so each gets its own slot.
-// RomM pairs on (rom_id, slot), which keeps them from overwriting each other and
-// lets a game that uses both sync both.
-//
-// These deliberately do not match Argosy's "autosave", so a console's saves stay
-// a separate lineage from an Android emulator's rather than conflict-detecting
-// against them. The zip layout is still interchangeable, so moving a save across
-// by hand works.
-#define SAVESYNC_SLOT_SAVEDATA "3ds"
-#define SAVESYNC_SLOT_EXTDATA "extdata"
-
 #define COPY_CHUNK_SIZE 8192
 
 static void iso8601_from_unix(uint64_t seconds, char *out, size_t outLen) {
