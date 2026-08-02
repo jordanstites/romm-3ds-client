@@ -221,23 +221,17 @@ static u32 result_summary(Result res) {
     return ((u32)res >> 21) & 0x3F;
 }
 
-// isExtdata, when given, reports which archive kind was opened. Callers need it
-// because only savedata goes inside the Citra container -- there is no verified
-// sample of what Azahar writes for extdata, so guessing at a wrapper for it
-// would risk producing something that silently fails to load.
-static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive, bool *isExtdata) {
-    if (isExtdata) *isExtdata = false;
+// Opens exactly the requested kind. Savedata used to fall back to extdata when
+// absent, which made a title look like it had one save when it might have two:
+// a game keeping both would only ever sync its savedata, silently losing the
+// rest. The caller asks for one and gets that one or nothing.
+static Result open_save_archive(u64 titleId, FS_MediaType mediaType, SaveArchiveKind kind, FS_Archive *archive) {
+    if (kind == SAVEARCHIVE_KIND_EXTDATA) {
+        return open_extdata_archive(titleId, archive);
+    }
 
     Result res = open_save_archive_once(titleId, mediaType, archive);
     if (R_SUCCEEDED(res)) return res;
-
-    // Savedata is the common case, so it is tried first and extdata is the
-    // fallback. A title with both only syncs its savedata for now; splitting
-    // them into separate sync targets is a UI question, not a plumbing one.
-    if (R_SUCCEEDED(open_extdata_archive(titleId, archive))) {
-        if (isExtdata) *isExtdata = true;
-        return 0;
-    }
 
     if (mediaType != MEDIATYPE_GAME_CARD) return res;
 
@@ -477,10 +471,10 @@ static bool add_directory(WalkState *state, int depth) {
     return ok;
 }
 
-static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const char *destPath) {
+static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, SaveArchiveKind kind, const char *destPath) {
     FS_Archive archive;
-    bool isExtdata = false;
-    Result res = open_save_archive(titleId, mediaType, &archive, &isExtdata);
+    bool isExtdata = (kind == SAVEARCHIVE_KIND_EXTDATA);
+    Result res = open_save_archive(titleId, mediaType, kind, &archive);
     if (R_FAILED(res)) {
         // A title that has never been played has no archive to open, which is
         // an ordinary state rather than a failure worth alarming about. One
@@ -541,9 +535,9 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
     return SAVEARCHIVE_OK;
 }
 
-bool savearchive_has_save(u64 titleId, FS_MediaType mediaType) {
+bool savearchive_has_save(u64 titleId, FS_MediaType mediaType, SaveArchiveKind kind) {
     FS_Archive archive;
-    if (R_FAILED(open_save_archive(titleId, mediaType, &archive, NULL))) return false;
+    if (R_FAILED(open_save_archive(titleId, mediaType, kind, &archive))) return false;
 
     Handle dir;
     bool hasEntry = false;
@@ -618,7 +612,8 @@ static bool write_entry(FS_Archive archive, const char *entryName, const u8 *dat
     return true;
 }
 
-static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 uniqueId, const char *zipPath) {
+static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 uniqueId, SaveArchiveKind kind,
+                                     const char *zipPath) {
     unzFile uf = unzOpen(zipPath);
     if (!uf) {
         log_error("Could not open %s", zipPath);
@@ -626,7 +621,7 @@ static SaveArchiveResult import_impl(u64 titleId, FS_MediaType mediaType, u32 un
     }
 
     FS_Archive archive;
-    Result res = open_save_archive(titleId, mediaType, &archive, NULL);
+    Result res = open_save_archive(titleId, mediaType, kind, &archive);
     if (R_FAILED(res)) {
         unzClose(uf);
         log_error("Could not open the save archive for %016llX (0x%08lX)", (unsigned long long)titleId, res);
@@ -861,6 +856,7 @@ typedef struct {
     u64 titleId;
     FS_MediaType mediaType;
     u32 uniqueId;
+    SaveArchiveKind kind;
     const char *path;
     char *hashOut;
     SaveArchiveResult result;
@@ -869,12 +865,12 @@ typedef struct {
 
 static void export_entry(void *arg) {
     ZipJob *job = (ZipJob *)arg;
-    job->result = export_impl(job->titleId, job->mediaType, job->path);
+    job->result = export_impl(job->titleId, job->mediaType, job->kind, job->path);
 }
 
 static void import_entry(void *arg) {
     ZipJob *job = (ZipJob *)arg;
-    job->result = import_impl(job->titleId, job->mediaType, job->uniqueId, job->path);
+    job->result = import_impl(job->titleId, job->mediaType, job->uniqueId, job->kind, job->path);
 }
 
 static void hash_entry(void *arg) {
@@ -900,16 +896,26 @@ static bool run_with_big_stack(ThreadFunc entry, ZipJob *job) {
     return true;
 }
 
-SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, const char *destPath) {
-    ZipJob job = {.titleId = titleId, .mediaType = mediaType, .path = destPath, .result = SAVEARCHIVE_IO_ERROR};
+SaveArchiveKind savearchive_primary_kind(u64 titleId, FS_MediaType mediaType) {
+    if (savearchive_has_save(titleId, mediaType, SAVEARCHIVE_KIND_SAVEDATA)) {
+        return SAVEARCHIVE_KIND_SAVEDATA;
+    }
+    return SAVEARCHIVE_KIND_EXTDATA;
+}
+
+SaveArchiveResult savearchive_export(u64 titleId, FS_MediaType mediaType, SaveArchiveKind kind, const char *destPath) {
+    ZipJob job = {
+        .titleId = titleId, .mediaType = mediaType, .kind = kind, .path = destPath, .result = SAVEARCHIVE_IO_ERROR};
     if (!run_with_big_stack(export_entry, &job)) return SAVEARCHIVE_IO_ERROR;
     return job.result;
 }
 
-SaveArchiveResult savearchive_import(u64 titleId, FS_MediaType mediaType, u32 uniqueId, const char *zipPath) {
+SaveArchiveResult savearchive_import(u64 titleId, FS_MediaType mediaType, u32 uniqueId, SaveArchiveKind kind,
+                                     const char *zipPath) {
     ZipJob job = {.titleId = titleId,
                   .mediaType = mediaType,
                   .uniqueId = uniqueId,
+                  .kind = kind,
                   .path = zipPath,
                   .result = SAVEARCHIVE_IO_ERROR};
     if (!run_with_big_stack(import_entry, &job)) return SAVEARCHIVE_IO_ERROR;

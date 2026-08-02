@@ -974,7 +974,8 @@ static void upload_native_save(void) {
     char zipPath[CONFIG_MAX_PATH_LEN + 64];
     snprintf(zipPath, sizeof(zipPath), "%s/save-%016llX.zip", CONFIG_DIR, (unsigned long long)titleId);
 
-    SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, zipPath);
+    SaveArchiveKind kind = savearchive_primary_kind(titleId, title->mediaType);
+    SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, kind, zipPath);
     if (exported != SAVEARCHIVE_OK) {
         ui_toast_error("%s", savearchive_result_text(exported));
         return;
@@ -1104,7 +1105,8 @@ static void download_native_save(void) {
     char backupPath[CONFIG_MAX_PATH_LEN + 96];
     snprintf(backupPath, sizeof(backupPath), "%s/backup-%016llX.zip", CONFIG_DIR, (unsigned long long)titleId);
 
-    SaveArchiveResult backup = savearchive_export(titleId, title->mediaType, backupPath);
+    SaveArchiveKind kind = savearchive_primary_kind(titleId, title->mediaType);
+    SaveArchiveResult backup = savearchive_export(titleId, title->mediaType, kind, backupPath);
     if (backup == SAVEARCHIVE_OK) {
         log_info("Existing save backed up to %s", backupPath);
     } else if (backup == SAVEARCHIVE_NOT_FOUND || backup == SAVEARCHIVE_EMPTY) {
@@ -1129,7 +1131,7 @@ static void download_native_save(void) {
     }
 
     show_loading("Writing to the save archive...");
-    SaveArchiveResult restored = savearchive_import(titleId, title->mediaType, title->uniqueId, zipPath);
+    SaveArchiveResult restored = savearchive_import(titleId, title->mediaType, title->uniqueId, kind, zipPath);
     remove(zipPath);
 
     if (restored == SAVEARCHIVE_OK) {

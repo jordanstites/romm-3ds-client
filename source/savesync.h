@@ -32,8 +32,8 @@ typedef struct {
     int romId;
     int saveId; // server-side asset id; 0 when the server has no copy
     char fileName[SAVES_MAX_NAME];
-    // Wide enough for a named channel, not just a digit: a native archive
-    // uses "autosave" to match the other RomM clients.
+    // Wide enough for a named channel, not just a digit: native archives use
+    // "3ds" and "extdata".
     char slot[16];
     char reason[128];
     char serverUpdatedAt[40];
@@ -48,6 +48,9 @@ typedef struct {
     // Copied from the matching LocalSave so execution knows whether to replace
     // a file or write back a save archive.
     bool nativeArchive;
+    // Which of the title's two archives this is. Both can exist for one
+    // title, so restoring has to write back to the one it came from.
+    bool extdata;
     unsigned long long titleId;
     unsigned int uniqueId;
     int mediaType;

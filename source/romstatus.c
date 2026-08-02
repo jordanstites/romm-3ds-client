@@ -202,7 +202,11 @@ RomStatus romstatus_for(const Config *config, int romId, const char *platformSlu
 
             // A native save lives in the title's archive, not as a file beside
             // a ROM, so the file scan above always reports zero for these.
-            if (title && savearchive_has_save(linked, title->mediaType)) {
+            // Either kind counts as having a save. The check short-circuits, so
+            // a title with savedata costs one archive open as before; only an
+            // extdata-only title such as Fantasy Life pays for the second.
+            if (title && (savearchive_has_save(linked, title->mediaType, SAVEARCHIVE_KIND_SAVEDATA) ||
+                          savearchive_has_save(linked, title->mediaType, SAVEARCHIVE_KIND_EXTDATA))) {
                 status.localSaves++;
             }
         } else {

@@ -17,8 +17,16 @@
 #include <sys/stat.h>
 #include <time.h>
 
-// Matches Argosy's default save channel so the two clients pair on the server.
-#define SAVESYNC_NATIVE_SLOT "autosave"
+// A title's two save archives are independent units, so each gets its own slot.
+// RomM pairs on (rom_id, slot), which keeps them from overwriting each other and
+// lets a game that uses both sync both.
+//
+// These deliberately do not match Argosy's "autosave", so a console's saves stay
+// a separate lineage from an Android emulator's rather than conflict-detecting
+// against them. The zip layout is still interchangeable, so moving a save across
+// by hand works.
+#define SAVESYNC_SLOT_SAVEDATA "3ds"
+#define SAVESYNC_SLOT_EXTDATA "extdata"
 
 #define COPY_CHUNK_SIZE 8192
 
@@ -51,8 +59,9 @@ static void copy_string_field(const cJSON *root, const char *key, char *dst, siz
 // ---------------------------------------------------------------------------
 
 // Where a native title's archive is staged during a sync.
-static void staged_zip_path(unsigned long long titleId, char *out, size_t outLen) {
-    snprintf(out, outLen, "%s/sync-%016llX.zip", CONFIG_DIR, titleId);
+static void staged_zip_path(unsigned long long titleId, SaveArchiveKind kind, char *out, size_t outLen) {
+    snprintf(out, outLen, "%s/sync-%016llX-%s.zip", CONFIG_DIR, titleId,
+             kind == SAVEARCHIVE_KIND_EXTDATA ? "ext" : "sav");
 }
 
 // Add every linked native 3DS title that currently has a save archive.
@@ -83,57 +92,64 @@ static int collect_native_saves(const Config *config, LocalSave *out, int maxSav
             continue;
         }
 
-        char zipPath[SAVES_MAX_PATH];
-        staged_zip_path((unsigned long long)titleId, zipPath, sizeof(zipPath));
+        // A title may keep a savedata archive, an extdata archive, or both.
+        // They are separate save units, so each is exported and offered to the
+        // server on its own slot rather than one standing in for the other.
+        static const struct {
+            SaveArchiveKind kind;
+            const char *slot;
+        } kinds[] = {
+            {SAVEARCHIVE_KIND_SAVEDATA, SAVESYNC_SLOT_SAVEDATA},
+            {SAVEARCHIVE_KIND_EXTDATA, SAVESYNC_SLOT_EXTDATA},
+        };
 
-        SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, zipPath);
-        if (exported != SAVEARCHIVE_OK) {
-            // A title that has never been played has nothing to sync, which is
-            // ordinary rather than a failure.
-            log_debug("No save archive for '%s': %s", title->name, savearchive_result_text(exported));
-            continue;
+        for (size_t k = 0; k < sizeof(kinds) / sizeof(kinds[0]) && found < maxSaves; k++) {
+            char zipPath[SAVES_MAX_PATH];
+            staged_zip_path((unsigned long long)titleId, kinds[k].kind, zipPath, sizeof(zipPath));
+
+            SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, kinds[k].kind, zipPath);
+            if (exported != SAVEARCHIVE_OK) {
+                // Most titles use only one of the two, and a title never played
+                // uses neither, so this is ordinary rather than a failure.
+                log_debug("No %s for '%s': %s", kinds[k].slot, title->name, savearchive_result_text(exported));
+                continue;
+            }
+
+            LocalSave *save = &out[found];
+            memset(save, 0, sizeof(LocalSave));
+            save->romId = entry->romId;
+            snprintf(save->path, sizeof(save->path), "%s", zipPath);
+            snprintf(save->slot, sizeof(save->slot), "%s", kinds[k].slot);
+            save->nativeArchive = true;
+            save->titleId = (unsigned long long)titleId;
+            save->uniqueId = title->uniqueId;
+            save->mediaType = (int)title->mediaType;
+            save->extdata = (kinds[k].kind == SAVEARCHIVE_KIND_EXTDATA);
+
+            // The name the server sees. Tied to the title and kind rather than
+            // the staging path, which is an implementation detail.
+            snprintf(save->fileName, sizeof(save->fileName), "%016llX-%s.zip", (unsigned long long)titleId,
+                     kinds[k].slot);
+
+            struct stat st;
+            if (stat(zipPath, &st) == 0) {
+                save->sizeBytes = (uint64_t)st.st_size;
+                save->modifiedAt = (uint64_t)st.st_mtime;
+            }
+
+            // Zips are hashed compositely by RomM -- MD5 over "<name>:<md5>"
+            // lines rather than over the archive bytes -- so a plain file hash
+            // here would never match and every sync would see a change.
+            if (!savearchive_zip_content_hash(zipPath, save->contentHash)) {
+                log_error("Could not hash the staged %s for '%s'", kinds[k].slot, title->name);
+                remove(zipPath);
+                continue;
+            }
+
+            log_debug("Native %s: rom %d '%s' (%llu bytes)", kinds[k].slot, save->romId, title->name,
+                      (unsigned long long)save->sizeBytes);
+            found++;
         }
-
-        LocalSave *save = &out[found];
-        memset(save, 0, sizeof(LocalSave));
-        save->romId = entry->romId;
-        snprintf(save->path, sizeof(save->path), "%s", zipPath);
-        // RomM pairs saves on (rom_id, slot), so this has to match what other
-        // clients use or a console's saves form a lineage of their own that
-        // never conflict-detects against anything else. Argosy, the Android
-        // client, defaults to "autosave".
-        //
-        // Tier 1 saves keep a numeric slot: there it doubles as the TWiLight
-        // Menu++ filename suffix, where slot 1 means ".sav1". Only a native
-        // archive is free to carry a name.
-        snprintf(save->slot, sizeof(save->slot), "%s", SAVESYNC_NATIVE_SLOT);
-        save->nativeArchive = true;
-        save->titleId = (unsigned long long)titleId;
-        save->uniqueId = title->uniqueId;
-        save->mediaType = (int)title->mediaType;
-
-        // The name the server sees. Tied to the title rather than the staging
-        // path, which is an implementation detail.
-        snprintf(save->fileName, sizeof(save->fileName), "%016llX.zip", (unsigned long long)titleId);
-
-        struct stat st;
-        if (stat(zipPath, &st) == 0) {
-            save->sizeBytes = (uint64_t)st.st_size;
-            save->modifiedAt = (uint64_t)st.st_mtime;
-        }
-
-        // Zips are hashed compositely by RomM -- MD5 over "<name>:<md5>" lines
-        // rather than over the archive bytes -- so a plain file hash here would
-        // never match and every sync would see a change.
-        if (!savearchive_zip_content_hash(zipPath, save->contentHash)) {
-            log_error("Could not hash the staged archive for '%s'", title->name);
-            remove(zipPath);
-            continue;
-        }
-
-        log_debug("Native save: rom %d '%s' (%llu bytes)", save->romId, title->name,
-                  (unsigned long long)save->sizeBytes);
-        found++;
     }
 
     return found;
@@ -288,6 +304,7 @@ bool savesync_negotiate(const Config *config, const AuthToken *token, const Loca
                     snprintf(op->localPath, sizeof(op->localPath), "%s", saves[i].path);
                     op->hasLocal = true;
                     op->nativeArchive = saves[i].nativeArchive;
+                    op->extdata = saves[i].extdata;
                     op->titleId = saves[i].titleId;
                     op->uniqueId = saves[i].uniqueId;
                     op->mediaType = saves[i].mediaType;
@@ -303,6 +320,9 @@ bool savesync_negotiate(const Config *config, const AuthToken *token, const Loca
                     const InstalledTitle *title = titles_find(linkedTitle);
                     if (title) {
                         op->nativeArchive = true;
+                        // Nothing local to copy this from, so it comes from the
+                        // slot the server named the save with.
+                        op->extdata = (strcmp(op->slot, SAVESYNC_SLOT_EXTDATA) == 0);
                         op->titleId = (unsigned long long)linkedTitle;
                         op->uniqueId = title->uniqueId;
                         op->mediaType = (int)title->mediaType;
@@ -441,10 +461,67 @@ static bool upload_save(const Config *config, const AuthToken *token, SyncOperat
     return ok;
 }
 
+// Writes a downloaded archive back into the title's save, replacing what is
+// there. The current contents are exported first: this is destructive and the
+// console copy is the only one that exists until it is.
+static bool restore_native_save(const Config *config, const AuthToken *token, SyncOperation *op) {
+    SaveArchiveKind kind = op->extdata ? SAVEARCHIVE_KIND_EXTDATA : SAVEARCHIVE_KIND_SAVEDATA;
+
+    char backupPath[SAVES_MAX_PATH];
+    snprintf(backupPath, sizeof(backupPath), "%s/backup-%016llX-%s.zip", CONFIG_DIR, op->titleId, op->slot);
+
+    SaveArchiveResult backup = savearchive_export(op->titleId, (FS_MediaType)op->mediaType, kind, backupPath);
+    if (backup == SAVEARCHIVE_OK) {
+        log_info("Backed up the current %s to %s", op->slot, backupPath);
+    } else if (backup != SAVEARCHIVE_NOT_FOUND && backup != SAVEARCHIVE_EMPTY) {
+        // Only "nothing there yet" is safe to continue past. Any other failure
+        // means the existing save could not be preserved.
+        log_error("Could not back up the current save for %016llX; not overwriting it", op->titleId);
+        return false;
+    }
+
+    char zipPath[SAVES_MAX_PATH];
+    snprintf(zipPath, sizeof(zipPath), "%s/restore-%016llX-%s.zip", CONFIG_DIR, op->titleId, op->slot);
+
+    char url[512];
+    snprintf(url, sizeof(url), "%s/api/saves/%d/content?device_id=%s", config->serverUrl, op->saveId, token->deviceId);
+
+    if (!http_download_to_file(url, zipPath, NULL)) {
+        log_error("Download of %s failed", op->fileName);
+        remove(zipPath);
+        return false;
+    }
+
+    SaveArchiveResult restored =
+        savearchive_import(op->titleId, (FS_MediaType)op->mediaType, op->uniqueId, kind, zipPath);
+    remove(zipPath);
+
+    if (restored != SAVEARCHIVE_OK) {
+        log_error("Could not write %s back to %016llX: %s", op->slot, op->titleId, savearchive_result_text(restored));
+        return false;
+    }
+
+    char ackUrl[512];
+    snprintf(ackUrl, sizeof(ackUrl), "%s/api/saves/%d/downloaded", config->serverUrl, op->saveId);
+    HttpResponse ack;
+    if (http_post_json(ackUrl, "{}", &ack)) {
+        http_response_free(&ack);
+    }
+
+    log_info("Restored %s for %016llX", op->slot, op->titleId);
+    return true;
+}
+
 static bool download_save(const Config *config, const AuthToken *token, SyncOperation *op) {
     if (op->saveId <= 0) {
         log_error("Download requested for rom %d but the server sent no save id", op->romId);
         return false;
+    }
+
+    // A native archive is not a file on the card, so it cannot be written by
+    // dropping one in place -- it has to go back through the save archive.
+    if (op->nativeArchive) {
+        return restore_native_save(config, token, op);
     }
 
     // Work out where it belongs. If we already have a local copy use that exact

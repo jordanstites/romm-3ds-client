@@ -38,6 +38,9 @@ typedef struct {
     // means writing the archive back rather than replacing a file, so the
     // difference has to survive into the execute step.
     bool nativeArchive;
+    // Which of the title's two archives this is. Both can exist for one
+    // title, so restoring has to write back to the one it came from.
+    bool extdata;
     unsigned long long titleId;
     unsigned int uniqueId;
     int mediaType;
