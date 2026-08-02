@@ -51,33 +51,36 @@ const char *savearchive_result_text(SaveArchiveResult result) {
 static void log_card_state(void) {
     bool inserted = false;
     if (R_FAILED(FSUSER_CardSlotIsInserted(&inserted))) {
-        log_info("  card slot state unavailable");
+        log_debug("  card slot state unavailable");
         return;
     }
     if (!inserted) {
+        // The one case a user can act on, so it is not buried at debug.
         log_info("  no card inserted");
         return;
     }
 
     bool powered = false;
     Result res = FSUSER_CardSlotPowerOn(&powered);
-    log_info("  card inserted, powered=%d (%s)", (int)powered, R_SUCCEEDED(res) ? "ok" : "power query failed");
+    log_debug("  card inserted, powered=%d (%s)", (int)powered, R_SUCCEEDED(res) ? "ok" : "power query failed");
 
     FS_CardType type;
     if (R_SUCCEEDED(FSUSER_GetCardType(&type))) {
         // A DS card keeps its save on a cartridge SPI chip, which this archive
         // API cannot reach at all -- that is a different subsystem, not a
         // permissions problem.
-        log_info("  card type: %s", type == CARD_TWL ? "DS (save is on cart SPI, not readable here)" : "3DS");
+        if (type == CARD_TWL) {
+            log_info("  DS card: the save is on the cartridge, not readable here");
+        } else {
+            log_debug("  card type: 3DS");
+        }
     }
 }
 
-// Ways a save archive can be addressed. A cartridge is the awkward case: it is
-// unclear from the API alone which of these it answers to, and the errors seen
-// so far -- canceled, then internal -- say the request could not be serviced as
-// asked rather than that the save is missing or protected. So each is tried and
-// each result is reported, rather than assuming one and reporting the last
-// failure.
+// Ways a save archive can be addressed. An installed title answers to exactly
+// one of these; a cartridge is tried against both, because which one applies
+// cannot be told from the API alone and a wrong guess is indistinguishable from
+// an absent save.
 typedef struct {
     const char *name;
     FS_ArchiveID archiveId;
@@ -104,26 +107,84 @@ static Result open_save_archive_once(u64 titleId, FS_MediaType mediaType, FS_Arc
         return try_archive(&installedForm, titleId, mediaType, archive);
     }
 
+    // Only these two reach FS proper. The others were tried on hardware and
+    // rejected as malformed: ARCHIVE_GAMECARD_SAVEDATA and
+    // ARCHIVE_SAVEDATA_AND_CONTENT both refuse a binary title path, and
+    // ARCHIVE_SAVEDATA resolves from our own exheader, so it can only ever open
+    // this app's save.
     static const ArchiveAttempt cartForms[] = {
-        {"user savedata", ARCHIVE_USER_SAVEDATA, true},
-        {"gamecard savedata", ARCHIVE_GAMECARD_SAVEDATA, false},
-        {"gamecard savedata (titled)", ARCHIVE_GAMECARD_SAVEDATA, true},
-        {"savedata", ARCHIVE_SAVEDATA, false},
+        {"user", ARCHIVE_USER_SAVEDATA, true},
+        {"gamecard", ARCHIVE_GAMECARD_SAVEDATA, false},
     };
 
-    Result last = 0;
+    // Hand back the first attempt's result rather than whichever ran last: the
+    // caller retries only on "canceled", so a trailing form reporting a
+    // different summary would silently disable that retry.
+    Result first = 0;
     for (size_t i = 0; i < sizeof(cartForms) / sizeof(cartForms[0]); i++) {
-        last = try_archive(&cartForms[i], titleId, mediaType, archive);
-        if (R_SUCCEEDED(last)) {
-            log_info("Cartridge save opened via %s", cartForms[i].name);
-            return last;
+        Result res = try_archive(&cartForms[i], titleId, mediaType, archive);
+        if (R_SUCCEEDED(res)) {
+            log_debug("Cartridge save opened via %s", cartForms[i].name);
+            return res;
         }
-        // At info, not debug: a failure nobody can see is what made this take
-        // several attempts to narrow.
-        log_info("  %s: %s", cartForms[i].name, log_result_text(last));
+        if (i == 0) first = res;
+        log_debug("  %s: %s", cartForms[i].name, log_result_text(res));
     }
 
-    return last;
+    return first;
+}
+
+// Whether a save lives in savedata, in extdata, or both is the game's choice,
+// not the media's: Pokemon Y keeps a savedata archive, Fantasy Life keeps only
+// extdata. A title with no savedata answers "canceled" rather than "not found"
+// when asked for one, which reads like a permissions problem and is not.
+//
+// Extdata always lives on the SD card, even for a game running from a card, so
+// reaching it needs nothing a cartridge would.
+//
+// The archive is keyed by an extdata ID rather than a title ID. That is
+// normally just the unique ID, but paired releases deliberately share one
+// extdata so a save carries across versions, and the shared ID is the *first*
+// version's.
+//
+// Getting this wrong does not fail safely: a wrong ID opens some other game's
+// extdata, and on restore would write into it. So the table below lists only
+// pairings that are certain, and anything unlisted falls back to the derived
+// ID rather than a guess.
+static u32 extdata_id_for(u64 titleId) {
+    u32 low = (u32)(titleId & 0xFFFFFFFF);
+
+    switch (low) {
+    case 0x00055E00:
+        return 0x0000055D; // Pokemon Y shares X's extdata
+    case 0x0011C500:
+        return 0x000011C4; // Alpha Sapphire shares Omega Ruby's
+    case 0x00175E00:
+        return 0x00001648; // Pokemon Moon shares Sun's
+    case 0x001B5100:
+        return 0x00001B50; // Pokemon Ultra Moon shares Ultra Sun's
+    default:
+        return low >> 8;
+    }
+}
+
+static Result open_extdata_archive(u64 titleId, FS_Archive *archive) {
+    u32 extdataId = extdata_id_for(titleId);
+
+    // Always MEDIATYPE_SD: extdata is on the SD card regardless of where the
+    // title itself lives.
+    u32 path[3] = {MEDIATYPE_SD, extdataId, 0};
+    FS_Path binaryPath = {PATH_BINARY, sizeof(path), path};
+
+    Result res = FSUSER_OpenArchive(archive, ARCHIVE_EXTDATA, binaryPath);
+    if (R_SUCCEEDED(res)) {
+        // Worth an info line: which of the two archive kinds a save came from
+        // decides where a restore has to put it back.
+        log_info("Save is extdata %08lX", (unsigned long)extdataId);
+    } else {
+        log_debug("  extdata %08lX: %s", (unsigned long)extdataId, log_result_text(res));
+    }
+    return res;
 }
 
 // Summary 9 is "canceled": the operation was abandoned rather than refused or
@@ -136,7 +197,14 @@ static u32 result_summary(Result res) {
 
 static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
     Result res = open_save_archive_once(titleId, mediaType, archive);
-    if (R_SUCCEEDED(res) || mediaType != MEDIATYPE_GAME_CARD) return res;
+    if (R_SUCCEEDED(res)) return res;
+
+    // Savedata is the common case, so it is tried first and extdata is the
+    // fallback. A title with both only syncs its savedata for now; splitting
+    // them into separate sync targets is a UI question, not a plumbing one.
+    if (R_SUCCEEDED(open_extdata_archive(titleId, archive))) return 0;
+
+    if (mediaType != MEDIATYPE_GAME_CARD) return res;
 
     // A card inserted after the console booted leaves this process holding a
     // stale view of the slot, and FS reports that as "canceled" rather than as
@@ -149,7 +217,7 @@ static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive 
     bool powered = false;
     if (R_FAILED(FSUSER_CardSlotPowerOn(&powered))) return res;
 
-    log_info("Card slot re-mounted; retrying the save archive");
+    log_debug("Card slot re-mounted; retrying the save archive");
     return open_save_archive_once(titleId, mediaType, archive);
 }
 
@@ -311,11 +379,10 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
     Result res = open_save_archive(titleId, mediaType, &archive);
     if (R_FAILED(res)) {
         // A title that has never been played has no archive to open, which is
-        // an ordinary state rather than a failure worth alarming about. The
-        // media type is logged because a cartridge title uses a different one
-        // and getting it wrong looks identical to having no save.
-        log_info("No save for %016llX media %u", (unsigned long long)titleId, (unsigned)mediaType);
-        log_info("  %s", log_result_text(res));
+        // an ordinary state rather than a failure worth alarming about. One
+        // line at info; the per-attempt detail is at debug for when it is not
+        // ordinary.
+        log_info("No save for %016llX: %s", (unsigned long long)titleId, log_result_text(res));
         if (mediaType == MEDIATYPE_GAME_CARD) {
             log_card_state();
         }

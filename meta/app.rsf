@@ -167,10 +167,15 @@ AccessControlInfo:
     - SeedDB
 
   # ARM9 access control -- a different exheader field from FileSystemAccess
-  # above. Luma's 3dsx loader grants the latter in full but not this, which
-  # would explain why a .3dsx cannot reach a cartridge's save regardless of
-  # which archive it asks for. Only a CIA build carries these, so a CIA is the
-  # way to test that.
+  # above, and one Luma's 3dsx loader does not grant.
+  #
+  # This was added to test whether it was what stood between a .3dsx and a
+  # cartridge save. It was not: a CIA carrying these rights failed identically.
+  # The real answer was that the title in question keeps its save in extdata
+  # rather than savedata, which needs no cartridge rights at all.
+  #
+  # Kept because it is correct for a CIA build to declare, and harmless. The
+  # shipping artifact is the .3dsx.
   IoAccessControl:
     - FsMountNand
     - FsMountNandRoWrite
