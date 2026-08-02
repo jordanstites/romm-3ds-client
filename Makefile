@@ -5,7 +5,9 @@
 # Prerequisites:
 #   - devkitPro with devkitARM
 #   - (dkp-)pacman -S 3ds-dev 3ds-curl 3ds-mbedtls 3ds-zlib
-#   - bannertool and makerom in PATH (for CIA builds)
+#   - For `make cia` only: bannertool and makerom in PATH.
+#     makerom: 3DSGuy/Project_CTR releases (native arm64 macOS build)
+#     bannertool: Epicpkmn11/bannertool releases (x86_64, runs under Rosetta)
 #   - librsvg (for SVG icons): brew install librsvg
 #
 # Usage:
@@ -191,7 +193,8 @@ cia: all meta/banner.bin meta/icon.bin
 		-banner meta/banner.bin \
 		-DAPP_TITLE="$(APP_TITLE)" \
 		-DAPP_PRODUCT_CODE="$(APP_PRODUCT)" \
-		-DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)"
+		-DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)" \
+		-DROMFS_ROOT="$(CURDIR)/$(ROMFS)"
 	@echo "Built: $(OUTPUT).cia"
 
 meta/banner.bin: meta/banner.png meta/audio.wav

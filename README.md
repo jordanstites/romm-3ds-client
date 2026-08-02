@@ -104,7 +104,21 @@ Run `make format` before committing — CI runs `make format-check` and fails on
 violations.
 
 `make cia` additionally needs `bannertool` and `makerom` in `PATH`; the `.3dsx`
-build does not, since it uses devkitPro's own `smdhtool`.
+build does not, since it uses devkitPro's own `smdhtool`. On macOS, makerom has a
+native arm64 build and bannertool runs under Rosetta:
+
+```sh
+gh release download makerom-v0.19.0 --repo 3DSGuy/Project_CTR \
+  --pattern 'makerom-v0.19.0-macos_arm64.zip'
+gh release download v1.2.2 --repo Epicpkmn11/bannertool --pattern 'bannertool.zip'
+# unzip both, then put makerom and mac-x86_64/bannertool on your PATH
+```
+
+The CIA build is not just a packaging choice. Luma's loader grants a `.3dsx`
+broad filesystem access but not **ARM9 access control**, which is a separate
+exheader field carrying `FsMountCardSpi` and `UseCardSpi`. Anything needing
+those — reading a physical cartridge's save is the case here — can only work
+from a CIA, whose access descriptor comes from [meta/app.rsf](meta/app.rsf).
 
 ## Notes for anyone reading the code
 
