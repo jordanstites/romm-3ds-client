@@ -12,14 +12,28 @@
 
 #define HASH_CHUNK_SIZE 8192
 
-// Extension a platform's saves use. TWiLight Menu++ and the emulators it ships
-// are not consistent: most write .sav, the SNES and Genesis cores write .srm.
+// Extension a platform's saves use.
+//
+// Two things vary. Most emulators write .sav while the SNES and Genesis cores
+// write .srm, matching the conventions RomM documents. And a few of TWiLight
+// Menu++'s emulators append their own extension to the full ROM name, so a
+// Master System save is "Game.sms.sav" rather than "Game.sav" -- looking for
+// the latter finds nothing at all.
 static const char *save_extension_for(const char *platformSlug) {
     if (strcmp(platformSlug, "snes") == 0 || strcmp(platformSlug, "sfam") == 0 ||
         strcmp(platformSlug, "genesis") == 0) {
         return "srm";
     }
+    if (strcmp(platformSlug, "neo-geo-pocket") == 0 || strcmp(platformSlug, "neo-geo-pocket-color") == 0) {
+        return "fla";
+    }
     return "sav";
+}
+
+// Whether this platform's saves keep the ROM's own extension before the save
+// extension. S8DS does this for Master System and Game Gear.
+static bool platform_keeps_rom_extension(const char *platformSlug) {
+    return strcmp(platformSlug, "sms") == 0 || strcmp(platformSlug, "gamegear") == 0;
 }
 
 // DS and DSi saves live in a `saves/` subfolder; everything else sits beside
@@ -91,7 +105,12 @@ int saves_candidate_paths(const Config *config, const char *platformSlug, const 
     if (!platform_rom_dir(config, platformSlug, romDir, sizeof(romDir))) return 0;
 
     char stem[SAVES_MAX_NAME];
-    strip_extension(romFsName, stem, sizeof(stem));
+    if (platform_keeps_rom_extension(platformSlug)) {
+        // "Sonic.sms" -> "Sonic.sms", so the save becomes "Sonic.sms.sav".
+        snprintf(stem, sizeof(stem), "%s", romFsName);
+    } else {
+        strip_extension(romFsName, stem, sizeof(stem));
+    }
 
     const char *ext = save_extension_for(platformSlug);
 
