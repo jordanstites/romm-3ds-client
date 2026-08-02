@@ -592,6 +592,31 @@ static void handle_bottom_action(BottomAction action) {
         sound_play_click();
         config_save(&config);
         api_set_base_url(config.serverUrl);
+
+        // Confirm this is actually a RomM server before going further. Without
+        // it, a typo or an unrelated host surfaces as a 403 and reads like a
+        // credentials problem.
+        show_loading("Checking the server...");
+        char serverVersion[32] = "";
+        switch (api_check_server(serverVersion, sizeof(serverVersion))) {
+        case API_REACHABLE:
+            if (serverVersion[0]) {
+                ui_toast("Connected to RomM %s", serverVersion);
+            } else {
+                ui_toast("Connected to RomM");
+            }
+            break;
+        case API_NOT_ROMM:
+            ui_toast_error("That address answered, but it is not RomM");
+            break;
+        case API_UNREACHABLE:
+            ui_toast_error("Could not reach that address");
+            break;
+        case API_UNAUTHENTICATED:
+            // Unusual: heartbeat is meant to be open.
+            ui_toast_error("Server requires authentication for its status");
+            break;
+        }
         bottom_set_mode(BOTTOM_MODE_DEFAULT);
         nav_clear();
         currentState = STATE_PLATFORMS;
@@ -924,19 +949,19 @@ static void upload_native_save(void) {
     if (!romDetail) return;
 
     if (!platform_is_native_3ds(currentPlatformSlug)) {
-        log_info("Saves for this platform are files on the SD card; use Sync instead");
+        ui_toast("Saves for this platform sync from the Sync screen");
         return;
     }
 
     u64 titleId = titlemap_get_title(romDetail->id);
     if (titleId == 0) {
-        log_error("Link this ROM to an installed title first (X)");
+        ui_toast_error("Link this game to an installed title first (X)");
         return;
     }
 
     const InstalledTitle *title = titles_find(titleId);
     if (!title) {
-        log_error("Linked title %016llX is not installed", (unsigned long long)titleId);
+        ui_toast_error("The linked title is not installed");
         return;
     }
 
@@ -948,7 +973,7 @@ static void upload_native_save(void) {
 
     SaveArchiveResult exported = savearchive_export(titleId, title->mediaType, zipPath);
     if (exported != SAVEARCHIVE_OK) {
-        log_error("%s", savearchive_result_text(exported));
+        ui_toast_error("%s", savearchive_result_text(exported));
         return;
     }
 
@@ -975,6 +1000,7 @@ static void upload_native_save(void) {
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
         log_info("Uploaded save for '%s'", title->name);
+        ui_toast("Uploaded save for %s", title->name);
         romstatus_invalidate();
         if (platforms && selectedPlatformIndex < platformCount) {
             romstatus_load_platform(platforms[selectedPlatformIndex].id);
@@ -982,6 +1008,7 @@ static void upload_native_save(void) {
         roms_refresh_status();
     } else {
         log_error("Server rejected the save: HTTP %ld", response.statusCode);
+        ui_toast_error("Server rejected the save (HTTP %ld)", response.statusCode);
     }
 
     http_response_free(&response);
@@ -996,19 +1023,19 @@ static void download_native_save(void) {
     if (!romDetail) return;
 
     if (!platform_is_native_3ds(currentPlatformSlug)) {
-        log_info("Saves for this platform are files on the SD card; use Sync instead");
+        ui_toast("Saves for this platform sync from the Sync screen");
         return;
     }
 
     u64 titleId = titlemap_get_title(romDetail->id);
     if (titleId == 0) {
-        log_error("Link this ROM to an installed title first (X)");
+        ui_toast_error("Link this game to an installed title first (X)");
         return;
     }
 
     const InstalledTitle *title = titles_find(titleId);
     if (!title) {
-        log_error("Linked title %016llX is not installed", (unsigned long long)titleId);
+        ui_toast_error("The linked title is not installed");
         return;
     }
 
@@ -1047,7 +1074,7 @@ static void download_native_save(void) {
     cJSON_Delete(root);
 
     if (saveId == 0) {
-        log_error("RomM has no save for this game yet");
+        ui_toast_error("RomM has no save for this game yet");
         return;
     }
 
@@ -1098,14 +1125,14 @@ static void install_focused_rom(void) {
     // The header is authoritative; the extension is only a hint.
     if (romDetailFormat.probed && !romformat_is_installable(&romDetailFormat)) {
         log_error("Cannot install directly: %s", romformat_describe(&romDetailFormat));
-        log_error("Convert it with GodMode9 first.");
+        ui_toast_error("Not installable yet - needs converting to CIA");
         return;
     }
 
     if (!romDetailFormat.probed) {
         const char *ext = strrchr(romDetail->fsName, '.');
         if (!ext || strcasecmp(ext, ".cia") != 0) {
-            log_error("Only .cia files can be installed directly.");
+            ui_toast_error("Only .cia files can be installed directly");
             return;
         }
     }
@@ -1137,10 +1164,16 @@ static void handle_state_rom_detail(u32 kDown) {
         // The header gives the title ID outright, so when it is installed the
         // link is certain and needs no confirmation -- unlike a name match,
         // which can be wrong and would write a save to the wrong game.
-        if (romDetailFormat.titleId != 0 && titles_find(romDetailFormat.titleId)) {
-            if (titlemap_set(romDetail->id, romDetailFormat.titleId)) {
+        if (romDetailFormat.titleId != 0) {
+            const InstalledTitle *matched = titles_find(romDetailFormat.titleId);
+            if (matched && titlemap_set(romDetail->id, romDetailFormat.titleId)) {
                 log_info("Linked by title ID %016llX from the ROM header", (unsigned long long)romDetailFormat.titleId);
+                ui_toast("Linked to %s", matched->name);
                 roms_refresh_status();
+                return;
+            }
+            if (!matched) {
+                ui_toast_error("That title is not installed on this console");
                 return;
             }
         }
@@ -1627,6 +1660,7 @@ int main(int argc, char *argv[]) {
         C2D_TargetClear(topScreen, UI_COLOR_BG);
         C2D_SceneBegin(topScreen);
         draw_top_screen();
+        ui_draw_toast();
         bottom_draw();
         C3D_FrameEnd(0);
     }

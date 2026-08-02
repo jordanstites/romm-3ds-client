@@ -274,6 +274,15 @@ bool savesync_negotiate(const Config *config, const AuthToken *token, const Loca
                 snprintf(op->platformSlug, sizeof(op->platformSlug), "%s", entry->platformSlug);
             }
 
+            // Drop anything this console cannot act on. RomM offers every save
+            // on the account, including ones other devices wrote for games that
+            // are not here -- previously those filled the review list with
+            // entries that could only ever be skipped.
+            if (!op->hasLocal && !entry && !op->nativeArchive) {
+                log_debug("Ignoring save for rom %d: not on this console", op->romId);
+                continue;
+            }
+
             switch (op->action) {
             case SYNC_OP_UPLOAD:
                 plan->uploadCount++;

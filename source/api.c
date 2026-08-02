@@ -120,6 +120,44 @@ static char *fetch_json(const char *url, int *statusCode) {
     return response.data;
 }
 
+ApiReachability api_check_server(char *versionOut, size_t versionOutLen) {
+    if (versionOut && versionOutLen) versionOut[0] = '\0';
+
+    // /api/heartbeat is unauthenticated and RomM-specific, so it separates
+    // "wrong address" from "right address, wrong credentials" -- which a 403
+    // from any other endpoint cannot.
+    char url[MAX_URL_LEN];
+    snprintf(url, sizeof(url), "%s/api/heartbeat", baseUrl);
+
+    HttpResponse response;
+    if (!http_get(url, &response)) {
+        return API_UNREACHABLE;
+    }
+
+    ApiReachability result = API_NOT_ROMM;
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+        cJSON *root = cJSON_Parse(response.data);
+        if (root) {
+            // Any JSON object here is RomM answering; a web server or a
+            // different app returns HTML, which will not parse.
+            result = API_REACHABLE;
+
+            const cJSON *system = cJSON_GetObjectItemCaseSensitive(root, "SYSTEM");
+            const cJSON *version = system ? cJSON_GetObjectItemCaseSensitive(system, "VERSION") : NULL;
+            if (cJSON_IsString(version) && version->valuestring && versionOut) {
+                snprintf(versionOut, versionOutLen, "%s", version->valuestring);
+            }
+            cJSON_Delete(root);
+        }
+    } else if (response.statusCode == 401 || response.statusCode == 403) {
+        result = API_UNAUTHENTICATED;
+    }
+
+    http_response_free(&response);
+    return result;
+}
+
 Platform *api_get_platforms(int *count) {
     *count = 0;
 

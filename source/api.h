@@ -67,6 +67,17 @@ int api_last_status(void);
 // -- do not have to reimplement the encoding.
 bool api_build_content_url(int romId, const char *fsName, char *out, size_t outLen);
 
+typedef enum {
+    API_REACHABLE,       // it is a RomM server and it answered
+    API_UNREACHABLE,     // nothing responded
+    API_NOT_ROMM,        // something responded, but not RomM
+    API_UNAUTHENTICATED, // RomM, but it wants credentials
+} ApiReachability;
+
+// Check the configured URL actually points at a RomM server, so a typo or a
+// random host is reported as such rather than surfacing as an auth failure.
+ApiReachability api_check_server(char *versionOut, size_t versionOutLen);
+
 // Fetch platforms from server
 // Returns array of platforms, sets count. Caller must free with api_free_platforms
 Platform *api_get_platforms(int *count);

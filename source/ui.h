@@ -107,6 +107,18 @@ void ui_draw_icon_info(float x, float y, float size, u32 color);
 // text will not fit the encoder's version cap.
 bool ui_draw_qr(float x, float y, float size, const char *text);
 
+// Transient on-screen message.
+//
+// Actions triggered from a screen that does not visibly change -- linking a
+// title, starting an upload, a refused install -- previously reported only to
+// the log, which reads as the button doing nothing at all.
+void ui_toast(const char *fmt, ...);
+void ui_toast_error(const char *fmt, ...);
+
+// Draws the current message if one is still current. Call last, so it sits on
+// top of whatever screen is beneath it.
+void ui_draw_toast(void);
+
 // Draw word-wrapped text within maxWidth. Returns number of lines drawn.
 // skipLines: skip this many lines before drawing (for scrolling)
 // maxLines: maximum lines to draw

@@ -3,6 +3,7 @@
  */
 
 #include "ui.h"
+#include <stdarg.h>
 #include "qrcodegen/qrcodegen.h"
 #include <stdio.h>
 #include <string.h>
@@ -535,4 +536,67 @@ bool ui_draw_qr(float x, float y, float size, const char *text) {
         }
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Transient messages
+// ---------------------------------------------------------------------------
+
+#define TOAST_DURATION_MS 2600
+#define TOAST_FADE_MS 400
+
+static char toastText[192] = "";
+static u64 toastShownAt = 0;
+static bool toastIsError = false;
+
+static void toast_set(bool isError, const char *fmt, va_list args) {
+    vsnprintf(toastText, sizeof(toastText), fmt, args);
+    toastShownAt = osGetTime();
+    toastIsError = isError;
+}
+
+void ui_toast(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    toast_set(false, fmt, args);
+    va_end(args);
+}
+
+void ui_toast_error(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    toast_set(true, fmt, args);
+    va_end(args);
+}
+
+void ui_draw_toast(void) {
+    if (toastText[0] == '\0') return;
+
+    u64 elapsed = osGetTime() - toastShownAt;
+    if (elapsed > TOAST_DURATION_MS) {
+        toastText[0] = '\0';
+        return;
+    }
+
+    // Fade out rather than vanishing, so a message that is read late still
+    // reads as having been deliberate.
+    u8 alpha = 0xFF;
+    if (elapsed > TOAST_DURATION_MS - TOAST_FADE_MS) {
+        u64 into = elapsed - (TOAST_DURATION_MS - TOAST_FADE_MS);
+        alpha = (u8)(0xFF - (into * 0xFF) / TOAST_FADE_MS);
+    }
+
+    float width = ui_get_text_width(toastText) + UI_PADDING * 4;
+    if (width > SCREEN_TOP_WIDTH - UI_PADDING * 2) width = SCREEN_TOP_WIDTH - UI_PADDING * 2;
+
+    float height = UI_LINE_HEIGHT + 8;
+    float x = (SCREEN_TOP_WIDTH - width) / 2;
+    float y = SCREEN_TOP_HEIGHT - height - UI_LINE_HEIGHT - UI_PADDING * 2;
+
+    u32 background = toastIsError ? C2D_Color32(0xDA, 0x36, 0x33, alpha) : C2D_Color32(0x1C, 0x23, 0x30, alpha);
+    C2D_DrawRectSolid(x, y, 0, width, height, background);
+    C2D_DrawRectSolid(x, y, 0, width, 2, C2D_Color32(0x8B, 0x74, 0xE8, alpha));
+
+    float textWidth = ui_get_text_width(toastText);
+    ui_draw_text(x + (width - textWidth) / 2, y + 5, toastText, C2D_Color32(0xFE, 0xFD, 0xFE, alpha));
 }
