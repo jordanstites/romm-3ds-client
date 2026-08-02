@@ -222,7 +222,16 @@ bool auth_begin_pairing(const char *serverUrl, AuthPairing *pairing) {
         copy_string_field(root, "verification_path", relative, sizeof(relative));
     }
     if (relative[0] != '\0') {
-        snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "%s%s", serverUrl, relative);
+        // A QR without a scheme is not a link -- phone cameras will not offer
+        // to open it, and the code has to be typed by hand instead. The
+        // configured URL is normalised to carry one, but default here too
+        // rather than silently emitting something unscannable.
+        if (strstr(serverUrl, "://") != NULL) {
+            snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "%s%s", serverUrl, relative);
+        } else {
+            log_error("Server URL '%s' has no scheme; assuming https for the QR code", serverUrl);
+            snprintf(pairing->verifyUrl, AUTH_MAX_VERIFY_URL_LEN, "https://%s%s", serverUrl, relative);
+        }
 
         // Scheme-stripped copy for the human-readable line: browsers infer it,
         // and it buys ~8 characters of screen width.

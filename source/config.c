@@ -84,6 +84,7 @@ bool config_load(Config *config) {
     }
 
     fclose(f);
+    config_normalize_server_url(config);
     return config_is_valid(config);
 }
 
@@ -120,6 +121,45 @@ static bool save_config_file(const Config *config) {
 
 bool config_save(const Config *config) {
     return save_config_file(config);
+}
+
+// Portion of the URL after the scheme, or the whole string if there is none.
+static const char *url_after_scheme(const char *url) {
+    const char *sep = strstr(url, "://");
+    return sep ? sep + 3 : url;
+}
+
+void config_normalize_server_url(Config *config) {
+    if (config->serverUrl[0] == '\0') return;
+
+    // Trailing slash first, so it cannot survive the rebuild below.
+    size_t len = strlen(config->serverUrl);
+    while (len > 0 && config->serverUrl[len - 1] == '/') {
+        config->serverUrl[--len] = '\0';
+    }
+    if (len == 0) return;
+
+    if (strstr(config->serverUrl, "://") != NULL) return;
+
+    // https by default: a server reachable from outside the LAN almost
+    // certainly has TLS, and choosing http silently would be the less safe
+    // guess of the two.
+    char rebuilt[CONFIG_MAX_URL_LEN];
+    snprintf(rebuilt, sizeof(rebuilt), "https://%.*s", (int)(CONFIG_MAX_URL_LEN - 9), config->serverUrl);
+    snprintf(config->serverUrl, sizeof(config->serverUrl), "%s", rebuilt);
+}
+
+void config_set_server_scheme(Config *config, bool https) {
+    if (config->serverUrl[0] == '\0') return;
+
+    char rest[CONFIG_MAX_URL_LEN];
+    snprintf(rest, sizeof(rest), "%s", url_after_scheme(config->serverUrl));
+    snprintf(config->serverUrl, sizeof(config->serverUrl), "%s%.*s", https ? "https://" : "http://",
+             (int)(CONFIG_MAX_URL_LEN - 9), rest);
+}
+
+bool config_server_uses_https(const Config *config) {
+    return strncmp(config->serverUrl, "https://", 8) == 0;
 }
 
 bool config_is_valid(const Config *config) {

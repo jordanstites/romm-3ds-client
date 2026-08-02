@@ -10,7 +10,13 @@
 
 // Credentials are not settings. Pairing happens on its own screen and the
 // resulting token is stored by the auth module, never in config.ini.
-typedef enum { FIELD_SERVER_URL, FIELD_ROM_FOLDER, FIELD_SHOW_ALL_PLATFORMS, FIELD_COUNT } SettingsField;
+typedef enum {
+    FIELD_SERVER_URL,
+    FIELD_SERVER_SCHEME,
+    FIELD_ROM_FOLDER,
+    FIELD_SHOW_ALL_PLATFORMS,
+    FIELD_COUNT
+} SettingsField;
 
 static Config *currentConfig = NULL;
 static int selectedField = FIELD_SERVER_URL;
@@ -71,6 +77,12 @@ SettingsResult settings_update(u32 kDown) {
         switch (selectedField) {
         case FIELD_SERVER_URL:
             ui_show_keyboard("Server URL", currentConfig->serverUrl, CONFIG_MAX_URL_LEN, false);
+            // Adds the scheme if it was left off, which otherwise breaks
+            // authentication in a way that looks like a server problem.
+            config_normalize_server_url(currentConfig);
+            break;
+        case FIELD_SERVER_SCHEME:
+            config_set_server_scheme(currentConfig, !config_server_uses_https(currentConfig));
             break;
         case FIELD_ROM_FOLDER:
             browser_init(currentConfig->romFolder[0] ? currentConfig->romFolder : "sdmc:/");
@@ -116,6 +128,14 @@ void settings_draw(void) {
             ui_draw_list_item(UI_PADDING, y, fieldWidth,
                               currentConfig->serverUrl[0] ? currentConfig->serverUrl : "(not set)",
                               selectedField == FIELD_SERVER_URL);
+            break;
+
+        case FIELD_SERVER_SCHEME:
+            ui_draw_text(UI_PADDING, y, "Protocol:", UI_COLOR_TEXT_DIM);
+            y += UI_LINE_HEIGHT;
+            ui_draw_list_item(UI_PADDING, y, fieldWidth,
+                              config_server_uses_https(currentConfig) ? "https:// (secure)" : "http:// (plain)",
+                              selectedField == FIELD_SERVER_SCHEME);
             break;
 
         case FIELD_ROM_FOLDER:

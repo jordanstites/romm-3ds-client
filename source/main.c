@@ -1521,6 +1521,13 @@ int main(int argc, char *argv[]) {
     ui_init();
     sound_init();
     log_init();
+
+    // Subscribed immediately after log_init, before anything that logs. Startup
+    // messages -- which CA bundle is in use, whether the network came up, the
+    // clock warning -- were previously emitted before the viewer attached and
+    // so were never visible on the console.
+    debuglog_init();
+    log_subscribe(debuglog_subscriber);
     config_init(&config);
     mkdir(CONFIG_DIR, 0755);
 
@@ -1555,9 +1562,7 @@ int main(int argc, char *argv[]) {
     bottom_init();
     queue_init();
     queue_screen_init();
-    debuglog_init();
 
-    log_subscribe(debuglog_subscriber);
     log_info("%s v%s", APP_TITLE, APP_VERSION);
 
     // Installed 3DS games. Needed for native save sync, and independent of

@@ -36,6 +36,20 @@ bool config_save(const Config *config);
 // Check if config has required fields
 bool config_is_valid(const Config *config);
 
+// Ensure the server URL carries a scheme and no trailing slash.
+//
+// A URL without one breaks more than it looks like it should: curl guesses
+// http, but the origin check that decides whether to send credentials cannot
+// parse it, so every request goes out unauthenticated and the server answers
+// 403. Defaults to https when the scheme is missing.
+void config_normalize_server_url(Config *config);
+
+// Swap the scheme, keeping the rest of the URL.
+void config_set_server_scheme(Config *config, bool https);
+
+// True when the server URL uses https.
+bool config_server_uses_https(const Config *config);
+
 // Platform folder mappings (slug -> subfolder name)
 // Get subfolder for a platform slug, returns NULL if not mapped
 const char *config_get_platform_folder(const char *platformSlug);

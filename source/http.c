@@ -156,7 +156,18 @@ static void extract_origin(const char *url, char *out, size_t outLen) {
 
 void http_set_trusted_origin(const char *url) {
     extract_origin(url, trustedOrigin, sizeof(trustedOrigin));
-    log_debug("Credentials will only be sent to %s", trustedOrigin);
+
+    if (trustedOrigin[0] == '\0') {
+        // Without an origin nothing is ever trusted, so every request goes out
+        // unauthenticated and the server answers 403 -- while pairing appears
+        // to have succeeded. Loud, because the symptom points nowhere near the
+        // cause.
+        log_error("Cannot read a scheme and host from '%s'.", url ? url : "(none)");
+        log_error("Requests will be unauthenticated. Set the URL as https://host in Settings.");
+        return;
+    }
+
+    log_info("Credentials will only be sent to %s", trustedOrigin);
 }
 
 // Whether a URL points at the configured server. Compared including scheme and
