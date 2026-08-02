@@ -163,47 +163,67 @@ static void push_line(const char *text) {
     if (logCount < LOG_MAX_LINES) logCount++;
 }
 
+// Width available to a log line. The viewer draws on the bottom screen, which
+// is narrower than the top -- wrapping to a character count tuned for the top
+// screen left the middle of a message scrolled off to the right, present in the
+// buffer but invisible without panning.
+static float log_line_width(void) {
+    return (float)SCREEN_BOTTOM_WIDTH - UI_PADDING * 2;
+}
+
+// Longest prefix of `text` that fits, preferring to break at a space. Returns
+// the number of characters to take, always at least one so it cannot loop.
+static size_t chars_that_fit(const char *text, const char *indent) {
+    float maxWidth = log_line_width();
+
+    char candidate[LOG_LINE_LENGTH];
+    size_t indentLen = strlen(indent);
+    size_t best = 0;
+
+    for (size_t take = 1; take + indentLen < LOG_LINE_LENGTH; take++) {
+        if (text[take - 1] == '\0') {
+            best = take - 1;
+            break;
+        }
+        snprintf(candidate, sizeof(candidate), "%s%.*s", indent, (int)take, text);
+        if (ui_get_text_width(candidate) > maxWidth) break;
+        best = take;
+    }
+
+    if (best == 0) best = 1;
+    if (text[best] == '\0') return best;
+
+    // Prefer a word boundary, but not one so early that the line is mostly
+    // empty -- a long unbroken token has to be split somewhere.
+    size_t wordBreak = best;
+    while (wordBreak > best / 2 && text[wordBreak] != ' ') {
+        wordBreak--;
+    }
+    if (text[wordBreak] == ' ') return wordBreak;
+
+    return best;
+}
+
 void debuglog_subscriber(LogLevel level, const char *message) {
-    // Messages used to be truncated to LOG_LINE_LENGTH at store time, so
-    // anything longer was lost before it could be drawn -- and the interesting
-    // part of a diagnostic is usually at the end: the result code, the path,
-    // the reason. Long messages are wrapped across lines instead, with
-    // continuations indented so they read as one entry.
+    // Messages were truncated at store time, so anything long was destroyed
+    // before it could be drawn. They are wrapped instead, measured against the
+    // real render width rather than a character count.
     char formatted[512];
     snprintf(formatted, sizeof(formatted), "[%s] %s", log_level_name(level), message);
 
     const char *cursor = formatted;
-    size_t remaining = strlen(formatted);
     bool first = true;
 
-    while (remaining > 0) {
-        // Continuations lose two columns to the indent.
-        size_t room = first ? LOG_LINE_LENGTH - 1 : LOG_LINE_LENGTH - 3;
-        size_t take = remaining < room ? remaining : room;
-
-        // Break at a space when there is a sensible one, so words survive.
-        if (take < remaining) {
-            size_t candidate = take;
-            while (candidate > room / 2 && cursor[candidate] != ' ') {
-                candidate--;
-            }
-            if (cursor[candidate] == ' ') take = candidate;
-        }
+    while (*cursor) {
+        const char *indent = first ? "" : "  ";
+        size_t take = chars_that_fit(cursor, indent);
 
         char line[LOG_LINE_LENGTH];
-        if (first) {
-            snprintf(line, sizeof(line), "%.*s", (int)take, cursor);
-        } else {
-            snprintf(line, sizeof(line), "  %.*s", (int)take, cursor);
-        }
+        snprintf(line, sizeof(line), "%s%.*s", indent, (int)take, cursor);
         push_line(line);
 
         cursor += take;
-        remaining -= take;
-        while (remaining > 0 && *cursor == ' ') {
-            cursor++;
-            remaining--;
-        }
+        while (*cursor == ' ') cursor++;
         first = false;
     }
 }

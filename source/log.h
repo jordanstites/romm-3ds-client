@@ -53,4 +53,12 @@ void log_fatal(const char *fmt, ...);
 // Get string name for a log level
 const char *log_level_name(LogLevel level);
 
+// Human-readable form of a 3DS Result. Raw hex says nothing on its own, and the
+// module and summary are usually the whole diagnosis -- "FS / not found" versus
+// "FS / canceled" point at completely different causes.
+//
+// Returns a pointer to a static buffer; copy it if you need it to survive the
+// next call.
+const char *log_result_text(long result);
+
 #endif // LOG_H

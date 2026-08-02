@@ -216,8 +216,8 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
         // an ordinary state rather than a failure worth alarming about. The
         // media type is logged because a cartridge title uses a different one
         // and getting it wrong looks identical to having no save.
-        log_info("No save archive for %016llX on media %u (0x%08lX)", (unsigned long long)titleId, (unsigned)mediaType,
-                 res);
+        log_info("No save for %016llX media %u", (unsigned long long)titleId, (unsigned)mediaType);
+        log_info("  %s", log_result_text(res));
         return SAVEARCHIVE_NOT_FOUND;
     }
 
