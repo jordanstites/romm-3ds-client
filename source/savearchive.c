@@ -76,6 +76,19 @@ static Result open_save_archive_once(u64 titleId, FS_MediaType mediaType, FS_Arc
     u32 lowId = (u32)(titleId & 0xFFFFFFFF);
     u32 highId = (u32)(titleId >> 32);
 
+    // A cartridge has its own archive. USER_SAVEDATA addresses a title by id on
+    // a given media, which is how an installed title is reached, but a card's
+    // save is not stored that way -- GAMECARD_SAVEDATA refers to whatever card
+    // is currently inserted, so it takes no title and an empty path.
+    if (mediaType == MEDIATYPE_GAME_CARD) {
+        Result res = FSUSER_OpenArchive(archive, ARCHIVE_GAMECARD_SAVEDATA, fsMakePath(PATH_EMPTY, ""));
+        if (R_SUCCEEDED(res)) return res;
+
+        log_debug("Gamecard archive refused (%s); trying it as a titled save", log_result_text(res));
+        // Fall through: a card-installed title may still answer to the normal
+        // form, and failing both is more informative than failing one.
+    }
+
     // ARCHIVE_SAVEDATA resolves the save from the calling process's own
     // exheader, so it can only ever open our own. USER_SAVEDATA takes an
     // explicit title, which is the whole point here.
