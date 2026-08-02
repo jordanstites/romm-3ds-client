@@ -42,6 +42,36 @@ const char *savearchive_result_text(SaveArchiveResult result) {
 // Archive access
 // ---------------------------------------------------------------------------
 
+// Reports what the card slot is doing, when a cartridge save fails to open.
+//
+// A cartridge is not like an installed title: the card can be absent, powered
+// down, or a DS card whose save is on an SPI chip rather than in a 3DS save
+// archive. Those look identical from the archive call alone, which returns a
+// generic FS error for all of them.
+static void log_card_state(void) {
+    bool inserted = false;
+    if (R_FAILED(FSUSER_CardSlotIsInserted(&inserted))) {
+        log_info("  card slot state unavailable");
+        return;
+    }
+    if (!inserted) {
+        log_info("  no card inserted");
+        return;
+    }
+
+    bool powered = false;
+    Result res = FSUSER_CardSlotPowerOn(&powered);
+    log_info("  card inserted, powered=%d (%s)", (int)powered, R_SUCCEEDED(res) ? "ok" : "power query failed");
+
+    FS_CardType type;
+    if (R_SUCCEEDED(FSUSER_GetCardType(&type))) {
+        // A DS card keeps its save on a cartridge SPI chip, which this archive
+        // API cannot reach at all -- that is a different subsystem, not a
+        // permissions problem.
+        log_info("  card type: %s", type == CARD_TWL ? "DS (save is on cart SPI, not readable here)" : "3DS");
+    }
+}
+
 static Result open_save_archive(u64 titleId, FS_MediaType mediaType, FS_Archive *archive) {
     u32 lowId = (u32)(titleId & 0xFFFFFFFF);
     u32 highId = (u32)(titleId >> 32);
@@ -218,6 +248,9 @@ static SaveArchiveResult export_impl(u64 titleId, FS_MediaType mediaType, const 
         // and getting it wrong looks identical to having no save.
         log_info("No save for %016llX media %u", (unsigned long long)titleId, (unsigned)mediaType);
         log_info("  %s", log_result_text(res));
+        if (mediaType == MEDIATYPE_GAME_CARD) {
+            log_card_state();
+        }
         return SAVEARCHIVE_NOT_FOUND;
     }
 
