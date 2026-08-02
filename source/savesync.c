@@ -365,10 +365,13 @@ static bool upload_save(const Config *config, const AuthToken *token, SyncOperat
     // the file itself is multipart.
     char url[1024];
     snprintf(url, sizeof(url),
-             // See SAVE_HISTORY_LIMIT: RomM keeps every upload, so this bounds
-             // how many versions of one save are retained.
+             // Deliberately no overwrite: it disables RomM's content-hash
+             // dedupe, so an unchanged save would be stored again. It also
+             // disables the server's 409 when the slot changed since this
+             // device last synced, which is a conflict worth hearing about
+             // rather than silently winning.
              "%s/api/saves?rom_id=%d&slot=%s&emulator=%s&device_id=%s"
-             "&overwrite=true&autocleanup=true&autocleanup_limit=5",
+             "&autocleanup=true&autocleanup_limit=5",
              config->serverUrl, op->romId, op->slot, op->nativeArchive ? "3ds" : "twilight", token->deviceId);
 
     HttpResponse response;
@@ -381,7 +384,13 @@ static bool upload_save(const Config *config, const AuthToken *token, SyncOperat
     }
 
     bool ok = response.statusCode >= 200 && response.statusCode < 300;
-    if (!ok) {
+    if (response.statusCode == 409) {
+        // The server saw a newer save in this slot than this device last
+        // synced. Treating that as a plain failure would hide a genuine
+        // conflict behind a retry.
+        log_error("%s changed on the server since this console last synced", op->fileName);
+        log_error("Sync again to pick up the newer copy first.");
+    } else if (!ok) {
         log_error("Upload of %s rejected: HTTP %ld", op->fileName, response.statusCode);
     } else {
         log_info("Uploaded %s", op->fileName);

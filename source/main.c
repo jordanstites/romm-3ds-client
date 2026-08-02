@@ -988,13 +988,18 @@ static void upload_native_save(void) {
     // api_get_base_url() rather than config.serverUrl: the API layer has
     // already stripped a trailing slash, which would otherwise produce "//api".
     snprintf(url, sizeof(url),
-             // RomM timestamps every upload and keeps them all, so without
-             // autocleanup a game synced regularly accumulates saves without
-             // limit. The limit is set explicitly rather than left at RomM's
-             // default of 10: a few versions are a genuine safety net for data
-             // that cannot be regenerated, but a long history is just clutter.
+             // No overwrite. It reads like the safe choice but it is the
+             // opposite: RomM skips its content-hash dedupe when overwrite is
+             // set, so re-uploading an unchanged save created a new record
+             // every time. Without it, an identical save is recognised and
+             // discarded server-side.
+             //
+             // autocleanup then bounds genuinely different versions. The limit
+             // is explicit rather than RomM's default of 10 -- a few versions
+             // are a real safety net for data that cannot be regenerated,
+             // a long history is just clutter.
              "%s/api/saves?rom_id=%d&slot=0&emulator=3ds&device_id=%s"
-             "&overwrite=true&autocleanup=true&autocleanup_limit=" SAVE_HISTORY_LIMIT,
+             "&autocleanup=true&autocleanup_limit=" SAVE_HISTORY_LIMIT,
              api_get_base_url(), romDetail->id, authToken.deviceId);
 
     HttpResponse response;
